@@ -17,6 +17,8 @@ shared/tools/tunwg/*.exe
 **/.env
 **/.env.*
 **/.env*.local
+# ...but allow committed templates
+!.env.example
 
 # Logs
 **/*.log

@@ -1,0 +1,39 @@
+# hapi-hub — run behind a reverse proxy (Caddy/Traefik/nginx/Cloudflare Tunnel).
+#
+#   cp .env.example .env   # then edit
+#   docker compose up -d --build
+#   docker compose logs -f hub   # first run prints the auto-generated CLI_API_TOKEN
+#
+# State (SQLite DB, CLI_API_TOKEN, JWT/VAPID keys, settings.json) lives in the
+# named `hapi-data` volume, so it survives container recreation.
+
+services:
+  hub:
+    # Build locally from this repo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # ...or pull a prebuilt multi-arch image once it's published to GHCR:
+    # image: ghcr.io/tiann/hapi-hub:latest
+
+    container_name: hapi-hub
+    restart: unless-stopped
+
+    ports:
+      - "3006:3006"
+
+    env_file:
+      - .env
+
+    volumes:
+      - hapi-data:/data
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3006/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  hapi-data:

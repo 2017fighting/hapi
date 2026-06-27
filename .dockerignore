@@ -1,0 +1,50 @@
+# VCS / repo metadata
+.git
+.github
+.codegraph
+
+# Dependencies (installed inside Docker)
+**/node_modules
+
+# Build outputs (built inside Docker — keep stale local builds out of the context)
+**/dist
+**/dist-exe
+**/.vitepress/cache
+**/.vitepress/dist
+website/dist
+**/*.tsbuildinfo
+hub/src/web/embeddedAssets.generated.ts
+hub/src/generated
+shared/tools/tunwg
+
+# Secrets / env (never bake into the image)
+**/.env
+**/.env.*
+**/.env*.local
+
+# Logs
+**/*.log
+
+# OS / editor / local tooling
+.DS_Store
+.vscode
+.idea
+**/*.swp
+**/*.swo
+.claude
+localdocs
+execplan
+.ace-tool
+.agents
+.pi
+
+# Test / coverage artifacts
+e2e
+test-results
+playwright-report
+e2e-output
+coverage
+.xyz-harness
+
+# Generated npm bundle output (local)
+cli/npm
