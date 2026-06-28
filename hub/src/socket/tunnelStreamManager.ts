@@ -1,3 +1,4 @@
+import type { ServerWebSocket } from 'bun'
 import { type TunnelFrameMeta, TUNNEL_DEFAULT_WINDOW_SIZE } from '@hapi/protocol'
 import type { CliSocketWithData, SocketServer } from './socketTypes'
 import type { TokenRegistry } from './tokenRegistry'
@@ -47,6 +48,12 @@ function mintStreamId(): string {
     return crypto.randomUUID()
 }
 
+/** Normalize a close code before sending it in a close frame. Codes 1005/1006/1015 are
+ *  reserved and cannot be sent; abnormal drops commonly produce 1006, which would throw. */
+function toClientCloseCode(code: number): number {
+    return code >= 1000 && code <= 4999 && code !== 1005 && code !== 1006 && code !== 1015 ? code : 1011
+}
+
 function sanitizeResponseHeaders(headers: Record<string, string>): Record<string, string> {
     const out: Record<string, string> = {}
     for (const [key, value] of Object.entries(headers)) {
@@ -85,8 +92,31 @@ interface PendingStream {
     ackedToRunner: number
 }
 
+/** Upgrade `data` attached to a browser PTY WebSocket by `server.ts` (Phase 4). */
+export interface PlannotatorTunnelWsData {
+    _plannotatorTunnel: true
+    token: string
+    streamId: string
+    /** Upstream path (leading '/') with the `/plannotator/<token>` prefix already stripped. */
+    wsPath: string
+    /** Raw query string without the leading '?'. */
+    wsQuery: string
+}
+
+/** Hub-side state for one in-flight PTY WebSocket stream (browser WS ↔ tunnel `data`). */
+interface WsStream {
+    token: string
+    socketId: string
+    streamId: string
+    ws: ServerWebSocket<PlannotatorTunnelWsData>
+    closed: boolean
+    idleTimer: ReturnType<typeof setTimeout>
+    idleTimeoutMs: number
+}
+
 export class HubTunnelStreamManager {
     private readonly streams = new Map<string, PendingStream>()
+    private readonly wsStreams = new Map<string, WsStream>()
     private readonly idleTimeoutMs: number
     private readonly sseIdleTimeoutMs: number
 
@@ -190,6 +220,14 @@ export class HubTunnelStreamManager {
     handleFrame(socket: CliSocketWithData, meta: TunnelFrameMeta, buffer?: Uint8Array): void {
         const pending = this.streams.get(meta.streamId)
         if (!pending) {
+            // Not an HTTP stream — maybe a PTY WebSocket stream (Phase 4).
+            const wsStream = this.wsStreams.get(meta.streamId)
+            if (wsStream) {
+                if (wsStream.socketId !== socket.id) {
+                    return
+                }
+                this.handleWsFrame(wsStream, meta, buffer)
+            }
             return
         }
         // A runner may only serve its own streams (no cross-spoofing).
@@ -263,6 +301,133 @@ export class HubTunnelStreamManager {
                 this.closeStream(streamId)
             }
         }
+        for (const streamId of this.wsStreams.keys()) {
+            const stream = this.wsStreams.get(streamId)
+            if (stream?.socketId === socketId) {
+                try { stream.ws.close(1011, 'runner disconnected') } catch { /* client gone */ }
+                this.closeWsStream(streamId)
+            }
+        }
+    }
+
+    // ─── PTY WebSocket streams (Phase 4) ───────────────────────────────────────
+    // Called from the Bun `websocket` dispatch in server.ts. The browser WS was upgraded
+    // (cookie-authenticated) with {_plannotatorTunnel, token, streamId, wsPath, wsQuery};
+    // these methods bridge it to the owning runner over tunnel `data` frames.
+
+    /** A browser PTY WS opened: resolve the owning runner, register the stream, emit `open{mode:'ws'}`. */
+    onBrowserWsOpen(ws: ServerWebSocket<PlannotatorTunnelWsData>): void {
+        const { token, streamId, wsPath, wsQuery } = ws.data
+        const socketId = this.tokenRegistry.getSocketIdForToken(token)
+        if (!socketId || !this.io.of('/cli').sockets.get(socketId)) {
+            try { ws.close(1011, 'plannotator tunnel not available') } catch { /* client gone */ }
+            return
+        }
+        this.wsStreams.set(streamId, {
+            token,
+            socketId,
+            streamId,
+            ws,
+            closed: false,
+            idleTimer: setTimeout(() => this.timeoutWsStream(streamId), this.sseIdleTimeoutMs),
+            idleTimeoutMs: this.sseIdleTimeoutMs
+        })
+        this.sendFrame(socketId, {
+            type: 'open',
+            streamId,
+            token,
+            method: 'GET',
+            path: wsPath,
+            query: wsQuery,
+            headers: {},
+            hasBody: false,
+            mode: 'ws'
+        })
+    }
+
+    /** browser → runner: forward a PTY WS frame to the owning runner as a tunnel `data` frame. */
+    onBrowserWsMessage(ws: ServerWebSocket<PlannotatorTunnelWsData>, data: string | ArrayBuffer | Uint8Array): void {
+        const streamId = ws.data.streamId
+        const stream = this.wsStreams.get(streamId)
+        if (!stream || stream.closed) {
+            return
+        }
+        this.bumpWsIdle(streamId)
+        const text = typeof data === 'string'
+            ? data
+            : new TextDecoder().decode(data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer))
+        // Browser→runner PTY input (keystrokes) is tiny and bursty; left unwindowed (Phase 6 candidate).
+        this.sendFrame(stream.socketId, { type: 'data', streamId }, new TextEncoder().encode(text))
+    }
+
+    /** The browser closed the PTY WS: tell the runner to abort the upstream and drop the stream. */
+    onBrowserWsClose(ws: ServerWebSocket<PlannotatorTunnelWsData>, code: number | undefined, reason: string | undefined): void {
+        const streamId = ws.data.streamId
+        const stream = this.wsStreams.get(streamId)
+        if (!stream) {
+            return
+        }
+        this.sendFrame(stream.socketId, { type: 'close', streamId, code, reason })
+        this.closeWsStream(streamId)
+    }
+
+    /** Route a runner frame for a PTY WS stream to the browser WS. */
+    private handleWsFrame(stream: WsStream, meta: TunnelFrameMeta, buffer?: Uint8Array): void {
+        this.bumpWsIdle(stream.streamId)
+        switch (meta.type) {
+            case 'data': {
+                if (buffer && !stream.closed && stream.ws.readyState === 1 /* OPEN */) {
+                    try { stream.ws.send(new TextDecoder().decode(buffer)) } catch { /* client gone */ }
+                }
+                return
+            }
+            case 'close': {
+                try { stream.ws.close(toClientCloseCode(meta.code ?? 1000), (meta.reason ?? 'upstream closed').slice(0, 123)) } catch { /* client gone */ }
+                this.closeWsStream(stream.streamId)
+                return
+            }
+            case 'end': {
+                try { stream.ws.close(1000, 'upstream closed') } catch { /* client gone */ }
+                this.closeWsStream(stream.streamId)
+                return
+            }
+            case 'error': {
+                try { stream.ws.close(1011, 'upstream error') } catch { /* client gone */ }
+                this.closeWsStream(stream.streamId)
+                return
+            }
+            default: {
+                return
+            }
+        }
+    }
+
+    private bumpWsIdle(streamId: string): void {
+        const stream = this.wsStreams.get(streamId)
+        if (!stream) {
+            return
+        }
+        clearTimeout(stream.idleTimer)
+        stream.idleTimer = setTimeout(() => this.timeoutWsStream(streamId), stream.idleTimeoutMs)
+    }
+
+    private timeoutWsStream(streamId: string): void {
+        const stream = this.wsStreams.get(streamId)
+        if (!stream) {
+            return
+        }
+        try { stream.ws.close(1011, 'idle timeout') } catch { /* client gone */ }
+        this.closeWsStream(streamId)
+    }
+
+    private closeWsStream(streamId: string): void {
+        const stream = this.wsStreams.get(streamId)
+        if (!stream) {
+            return
+        }
+        clearTimeout(stream.idleTimer)
+        stream.closed = true
+        this.wsStreams.delete(streamId)
     }
 
     private bumpIdle(streamId: string): void {

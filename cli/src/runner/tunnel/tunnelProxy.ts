@@ -17,13 +17,35 @@ function resolveWindowSize(): number {
 /** Per-direction send window (env-overridable). Bounds in-flight response bytes. */
 const WINDOW_SIZE = resolveWindowSize()
 
+/**
+ * Minimal upstream-WebSocket surface the runner bridges a `mode: 'ws'` stream to.
+ * Injectable so tests can substitute a deterministic fake (Phase 4 PTY) instead of a real
+ * `Bun.serve` WS upstream. The production default is the global `WebSocket`.
+ */
+export interface TunnelWebSocket {
+    readonly readyState: number
+    send(data: string | ArrayBuffer | Uint8Array): void
+    close(code?: number, reason?: string): void
+    onopen: (() => void) | null
+    onmessage: ((event: { data: string | ArrayBuffer | Uint8Array }) => void) | null
+    onclose: ((event: { code: number; reason: string }) => void) | null
+    onerror: (() => void) | null
+}
+export type TunnelWebSocketCtor = (new (url: string) => TunnelWebSocket) & { readonly OPEN: number }
+
 interface RunnerStream {
     token: string
     port: number
+    /** `'http'` streams fetch the upstream; `'ws'` streams open a local WebSocket (Phase 4 PTY). */
+    mode: 'http' | 'ws'
     abort: AbortController
     reqBodyController: ReadableStreamDefaultController<Uint8Array> | null
     reqBodyClosed: boolean
     respWindow: TunnelSendWindow
+    /** Local WebSocket upstream for `mode: 'ws'` streams; null for HTTP. */
+    ws: TunnelWebSocket | null
+    /** Browser frames that arrived before the local WS finished its handshake; flushed on open. */
+    wsPending: string[]
 }
 
 function concatBytes(chunks: ReadonlyArray<Uint8Array>): Uint8Array {
@@ -53,7 +75,10 @@ export class RunnerTunnelProxy {
     private socket: Socket | null = null
     private readonly streams = new Map<string, RunnerStream>()
 
-    constructor(private readonly registry: RunnerTunnelRegistry) {}
+    constructor(
+        private readonly registry: RunnerTunnelRegistry,
+        private readonly webSocketCtor: TunnelWebSocketCtor = WebSocket as unknown as TunnelWebSocketCtor
+    ) {}
 
     attach(socket: Socket): void {
         this.socket = socket
@@ -106,6 +131,11 @@ export class RunnerTunnelProxy {
             return
         }
 
+        if (frame.mode === 'ws') {
+            this.openWsStream(frame, entry.port)
+            return
+        }
+
         const url = `http://127.0.0.1:${entry.port}${frame.path || '/'}${frame.query ? `?${frame.query}` : ''}`
         const abort = new AbortController()
         let reqBodyController: ReadableStreamDefaultController<Uint8Array> | null = null
@@ -121,10 +151,13 @@ export class RunnerTunnelProxy {
         this.streams.set(frame.streamId, {
             token: frame.token,
             port: entry.port,
+            mode: 'http',
             abort,
             reqBodyController,
             reqBodyClosed: false,
-            respWindow: new TunnelSendWindow(WINDOW_SIZE)
+            respWindow: new TunnelSendWindow(WINDOW_SIZE),
+            ws: null,
+            wsPending: []
         })
 
         const init: RequestInit & { duplex?: 'half' } = {
@@ -146,6 +179,71 @@ export class RunnerTunnelProxy {
             }
         } finally {
             this.cleanupStream(frame.streamId)
+        }
+    }
+
+    /**
+     * Open a local `WebSocket` upstream (Phase 4 PTY) and bridge frames both directions:
+     * tunnel `data` → `upstream.send`; upstream messages → tunnel `data`; either close →
+     * tunnel `close` (code/reason passed through — the hub normalizes via `toClientCloseCode`).
+     * Runner→hub bytes flow through the same send window as the HTTP response path.
+     */
+    private openWsStream(frame: Extract<TunnelFrameMeta, { type: 'open' }>, port: number): void {
+        const url = `ws://127.0.0.1:${port}${frame.path || '/'}${frame.query ? `?${frame.query}` : ''}`
+        const stream: RunnerStream = {
+            token: frame.token,
+            port,
+            mode: 'ws',
+            abort: new AbortController(),
+            reqBodyController: null,
+            reqBodyClosed: true,
+            respWindow: new TunnelSendWindow(WINDOW_SIZE),
+            ws: null,
+            wsPending: []
+        }
+        this.streams.set(frame.streamId, stream)
+
+        let upstream: TunnelWebSocket
+        try {
+            upstream = new this.webSocketCtor(url)
+        } catch (error) {
+            this.emit({ type: 'error', streamId: frame.streamId, code: 'upstream-unreachable', msg: error instanceof Error ? error.message : String(error) })
+            this.streams.delete(frame.streamId)
+            return
+        }
+        stream.ws = upstream
+
+        upstream.onopen = () => {
+            // Flush browser frames that arrived before the handshake completed.
+            const queued = stream.wsPending
+            stream.wsPending = []
+            for (const payload of queued) {
+                try {
+                    stream.ws?.send(payload)
+                } catch {
+                    // Upstream gone; onclose/onerror tears the stream down.
+                }
+            }
+        }
+        upstream.onmessage = (event) => {
+            // PTY frames are text (plannotator's webtui JSON). Carry as UTF-8 bytes through the
+            // tunnel; the hub sends them to the browser as text. Binary PTY is not a plannotator case.
+            const raw = event.data
+            const text = typeof raw === 'string'
+                ? raw
+                : new TextDecoder().decode(raw instanceof Uint8Array ? raw : new Uint8Array(raw as ArrayBuffer))
+            void this.emitDataChunked(frame.streamId, new TextEncoder().encode(text), stream.respWindow)
+        }
+        upstream.onclose = (event) => {
+            // If the stream is gone, we initiated the close (hub `close` / disconnect) — don't re-emit.
+            if (!this.streams.has(frame.streamId)) {
+                return
+            }
+            this.emit({ type: 'close', streamId: frame.streamId, code: event.code, reason: event.reason })
+            this.streams.delete(frame.streamId)
+        }
+        upstream.onerror = () => {
+            // `onclose` follows with the failure code; nothing to emit here.
         }
     }
 
@@ -231,7 +329,21 @@ export class RunnerTunnelProxy {
 
     private onRequestData(streamId: string, buffer?: Uint8Array): void {
         const stream = this.streams.get(streamId)
-        if (!stream?.reqBodyController || stream.reqBodyClosed || !buffer) {
+        if (!stream || !buffer) {
+            return
+        }
+        if (stream.mode === 'ws') {
+            // browser → runner WS frame: forward to the local PTY upstream as text,
+            // queueing until the upstream handshake completes (onopen flushes).
+            const payload = new TextDecoder().decode(buffer)
+            if (stream.ws?.readyState === this.webSocketCtor.OPEN) {
+                stream.ws.send(payload)
+            } else {
+                stream.wsPending.push(payload)
+            }
+            return
+        }
+        if (!stream.reqBodyController || stream.reqBodyClosed) {
             return
         }
         stream.reqBodyController.enqueue(buffer)
@@ -239,7 +351,14 @@ export class RunnerTunnelProxy {
 
     private onRequestEnd(streamId: string): void {
         const stream = this.streams.get(streamId)
-        if (!stream?.reqBodyController || stream.reqBodyClosed) {
+        if (!stream) {
+            return
+        }
+        if (stream.mode === 'ws') {
+            // WebSocket has no request-body end; the stream closes via `close`.
+            return
+        }
+        if (!stream.reqBodyController || stream.reqBodyClosed) {
             return
         }
         try {
@@ -253,6 +372,16 @@ export class RunnerTunnelProxy {
     private abortStream(streamId: string): void {
         const stream = this.streams.get(streamId)
         if (!stream) {
+            return
+        }
+        if (stream.mode === 'ws') {
+            // Drop from the map first so the upstream `onclose` handler doesn't re-emit a tunnel close.
+            this.streams.delete(streamId)
+            try {
+                stream.ws?.close()
+            } catch {
+                // Ignore.
+            }
             return
         }
         try {

@@ -374,3 +374,51 @@ shared types already enforce).
 
 Phase 2 adds the sliding-window backpressure + acks on top of this frame shape;
 SSE (Phase 3) and the PTY WebSocket (Phase 4) reuse the same stream lifecycle.
+
+## Phase 4 verification (PTY WebSocket)
+
+Phase 4 bridges the browser PTY WebSocket through the tunnel. The browser WS at
+`/plannotator/<token>/api/agent-terminal/pty/<tk>` is upgraded by the hub (cookie-
+authenticated, same upgrade shape as the Gemini/Qwen voice proxies) and bridged to the
+owning runner, which opens a local `ws://localhost:<port>/...` and relays frames both
+directions over tunnel `data`.
+
+**Wire contract:** `mode?: 'http' | 'ws'` added to the `open` frame (absent ≡ `'http'`, so
+Phases 1–3 are unchanged). A `'ws'` open tells the runner to open a local `WebSocket`
+instead of `fetch`.
+
+**Automated coverage (all green; shared/hub/cli/web typecheck clean):**
+- Runner (`cli/src/runner/tunnel/tunnelProxy.ts`): a `mode:'ws'` open opens a local WS and
+  bridges both directions — browser→runner `data` reaches the upstream, upstream messages
+  come back as runner→hub `data`, an upstream close (1000) is emitted as a tunnel `close`
+  with the code passed through, and a token-unknown open errors without opening an upstream.
+  A send-until-open queue (flushed on handshake) covers frames that arrive before the upstream
+  is OPEN. The upstream `WebSocket` ctor is injectable (`TunnelWebSocket`/`TunnelWebSocketCtor`)
+  so tests use a deterministic fake — no `Bun.serve`-WS teardown hang in `bun test`.
+- Hub (`hub/src/socket/tunnelStreamManager.ts`): `onBrowserWsOpen/Message/Close` register the
+  browser WS, emit `open{mode:'ws'}`, and bridge runner `data`→browser / browser
+  `message`→runner `data`; reserved close codes (1006) normalize to 1011 via `toClientCloseCode`;
+  a missing owner runner closes the browser WS 1011; runner-socket disconnect tears the WS
+  stream down (1011). `handleFrame`/`teardownSocket` route both HTTP and WS streams.
+- Hub wiring (`hub/src/web/server.ts`): the raw `fetch` handler intercepts `Upgrade: websocket`
+  on `/plannotator/<token>/api/agent-terminal/pty/<tk>`, validates the `hapi_auth` cookie (JWT),
+  and upgrades with `{_plannotatorTunnel, token, streamId, wsPath, wsQuery}`; the `websocket`
+  dispatch routes those sockets to the stream manager. Follows the existing Gemini/Qwen proxy
+  shape; verified by typecheck + the manager unit tests + the manual smoke test below.
+- plannotator client (`packages/ui/utils/annotateAgentTerminal.ts`):
+  `resolveAgentTerminalWebSocketUrl` now prepends `window.__PLANNOTATOR_BASE_PATH__` to the PTY
+  path before resolving against `location.href` — otherwise the root-relative path discards the
+  `/plannotator/<token>` prefix and the WS misses the tunnel. (Verified RED→GREEN; the ui
+  typecheck additionally caught a `__PLNOTATOR__` vs `__PLANNOTATOR__` global-name mismatch
+  before it could ship silently.)
+
+**Known gap (Phase 6 candidate):** browser→runner PTY input (keystrokes) is carried unwindowed,
+identical to the HTTP request-body path today. PTY input is tiny and bursty, so this is
+low-risk; runner→hub PTY output reuses the existing send window. Symmetric windowing can follow
+if measured WAN traffic warrants it.
+
+**Live smoke test (homelab):** with a runner-local plannotator in annotate mode registered
+through the tunnel, open `/plannotator/<token>` in the browser (owner cookie), start the agent
+terminal, and confirm the PTY is interactive end-to-end (keystrokes echo, output streams)
+through `hapi.raenzo.com`. Close the tab → the runner's local PTY WS closes; stop the runner →
+the browser PTY WS closes (1011).

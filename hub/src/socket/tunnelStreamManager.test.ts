@@ -154,3 +154,121 @@ describe('HubTunnelStreamManager', () => {
         expect(res.status).toBe(502)
     })
 })
+
+describe('HubTunnelStreamManager — WebSocket streams (mode: "ws")', () => {
+    // Fake browser-side ServerWebSocket: captures sent text + the close code/reason the
+    // hub applies. Stands in for the browser PTY client upgraded by server.ts.
+    class FakeBrowserWs {
+        readyState = 1 // OPEN
+        readonly sent: string[] = []
+        closeCode: number | undefined
+        closeReason: string | undefined
+        constructor(public data: { token: string; streamId: string; wsPath: string; wsQuery: string }) {}
+        send(data: string | ArrayBuffer | Uint8Array): void {
+            this.sent.push(typeof data === 'string' ? data : new TextDecoder().decode(data))
+        }
+        close(code?: number, reason?: string): void {
+            this.closeCode = code
+            this.closeReason = reason
+        }
+    }
+
+    function openWs(manager: HubTunnelStreamManager, sock: FakeSocket, streamId: string, wsPath = '/api/agent-terminal/pty/abc'): FakeBrowserWs {
+        const ws = new FakeBrowserWs({ token: TOKEN, streamId, wsPath, wsQuery: '' })
+        manager.onBrowserWsOpen(ws as never)
+        return ws
+    }
+
+    it('emits open{mode:"ws"} over the runner socket on browser WS open', () => {
+        const sock = fakeSocket('sock-1')
+        const sockets = new Map([['sock-1', sock]])
+        const registry = new TokenRegistry()
+        registry.register({ id: 'sock-1' } as never, TOKEN)
+        const manager = new HubTunnelStreamManager(fakeIo(sockets), registry)
+
+        const ws = openWs(manager, sock, 'ws-1')
+
+        const open = sock.emitted.find((e) => e.event === 'tunnel:frame' && (e.args[0] as { type?: string }).type === 'open')
+        expect(open).toBeDefined()
+        expect((open!.args[0] as { mode?: string }).mode).toBe('ws')
+        expect((open!.args[0] as { path?: string }).path).toBe('/api/agent-terminal/pty/abc')
+        expect(ws.closeCode).toBeUndefined()
+    })
+
+    it('closes the browser WS 1011 when no runner owns the token', () => {
+        const manager = new HubTunnelStreamManager(fakeIo(new Map()), new TokenRegistry())
+        const ws = new FakeBrowserWs({ token: 'unknown', streamId: 'ws-x', wsPath: '/', wsQuery: '' })
+        manager.onBrowserWsOpen(ws as never)
+        expect(ws.closeCode).toBe(1011)
+    })
+
+    it('bridges a runner data frame to the browser WS', () => {
+        const sock = fakeSocket('sock-1')
+        const sockets = new Map([['sock-1', sock]])
+        const registry = new TokenRegistry()
+        registry.register({ id: 'sock-1' } as never, TOKEN)
+        const manager = new HubTunnelStreamManager(fakeIo(sockets), registry)
+
+        const ws = openWs(manager, sock, 'ws-1')
+        manager.handleFrame(sock as never, { type: 'data', streamId: 'ws-1' }, new TextEncoder().encode('hello-pty'))
+
+        expect(ws.sent).toEqual(['hello-pty'])
+    })
+
+    it('bridges a browser WS message to a runner data frame', () => {
+        const sock = fakeSocket('sock-1')
+        const sockets = new Map([['sock-1', sock]])
+        const registry = new TokenRegistry()
+        registry.register({ id: 'sock-1' } as never, TOKEN)
+        const manager = new HubTunnelStreamManager(fakeIo(sockets), registry)
+
+        const ws = openWs(manager, sock, 'ws-1')
+        manager.onBrowserWsMessage(ws as never, 'keystroke')
+
+        const data = sock.emitted.find((e) => e.event === 'tunnel:frame' && (e.args[0] as { type?: string }).type === 'data')
+        expect(data).toBeDefined()
+        expect(new TextDecoder().decode(data!.args[1] as Uint8Array)).toBe('keystroke')
+    })
+
+    it('maps a reserved runner close code to 1011 via toClientCloseCode', () => {
+        const sock = fakeSocket('sock-1')
+        const sockets = new Map([['sock-1', sock]])
+        const registry = new TokenRegistry()
+        registry.register({ id: 'sock-1' } as never, TOKEN)
+        const manager = new HubTunnelStreamManager(fakeIo(sockets), registry)
+
+        const ws = openWs(manager, sock, 'ws-1')
+        // 1006 is reserved (abnormal drop) and cannot be sent; hub must normalize to 1011.
+        manager.handleFrame(sock as never, { type: 'close', streamId: 'ws-1', code: 1006, reason: 'abnormal' }, undefined)
+
+        expect(ws.closeCode).toBe(1011)
+    })
+
+    it('emits a tunnel close frame when the browser WS closes', () => {
+        const sock = fakeSocket('sock-1')
+        const sockets = new Map([['sock-1', sock]])
+        const registry = new TokenRegistry()
+        registry.register({ id: 'sock-1' } as never, TOKEN)
+        const manager = new HubTunnelStreamManager(fakeIo(sockets), registry)
+
+        const ws = openWs(manager, sock, 'ws-1')
+        manager.onBrowserWsClose(ws as never, 1000, 'normal')
+
+        const close = sock.emitted.find((e) => e.event === 'tunnel:frame' && (e.args[0] as { type?: string }).type === 'close')
+        expect(close).toBeDefined()
+        expect((close!.args[0] as { code?: number }).code).toBe(1000)
+    })
+
+    it('tears down a WS stream (closes the browser WS 1011) on runner-socket disconnect', () => {
+        const sock = fakeSocket('sock-1')
+        const sockets = new Map([['sock-1', sock]])
+        const registry = new TokenRegistry()
+        registry.register({ id: 'sock-1' } as never, TOKEN)
+        const manager = new HubTunnelStreamManager(fakeIo(sockets), registry)
+
+        const ws = openWs(manager, sock, 'ws-1')
+        manager.teardownSocket('sock-1')
+
+        expect(ws.closeCode).toBe(1011)
+    })
+})

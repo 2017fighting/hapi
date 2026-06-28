@@ -45,7 +45,14 @@ export const TunnelFrameMetaSchema = z.discriminatedUnion('type', [
         query: z.string(),
         headers: z.record(z.string(), z.string()),
         /** Whether the browser request has a body (POST/PUT/PATCH) that will follow as `data` frames. */
-        hasBody: z.boolean()
+        hasBody: z.boolean(),
+        /**
+         * Stream transport. `'http'` (default) → the runner `fetch`es the upstream and streams
+         * the response. `'ws'` → the runner opens a local `WebSocket` and bridges frames both
+         * directions via `data` (Phase 4 PTY; no `headers` frame, `close` carries code/reason).
+         * Absent ≡ `'http'`, so Phases 1–3 frames are unchanged.
+         */
+        mode: z.enum(['http', 'ws']).optional()
     }),
     z.object({
         type: z.literal('data'),

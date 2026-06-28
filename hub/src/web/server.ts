@@ -10,7 +10,7 @@ import { buildGeminiLiveSetupMessage, QWEN_REALTIME_MODEL } from '@hapi/protocol
 import { createQwenProxyWebSocketHandler } from './qwenProxyHandler'
 import { decodeVoiceSystemPromptParam } from '../voiceSystemPromptParam'
 import type { SyncEngine } from '../sync/syncEngine'
-import { createAuthMiddleware, type WebAppEnv } from './middleware/auth'
+import { AUTH_COOKIE_NAME, createAuthMiddleware, type WebAppEnv } from './middleware/auth'
 import { createAuthRoutes } from './routes/auth'
 import { createBindRoutes } from './routes/bind'
 import { createEventsRoutes } from './routes/events'
@@ -23,7 +23,7 @@ import { createCliRoutes } from './routes/cli'
 import { createCodexDesktopRoutes } from './routes/codexDesktop'
 import { createPushRoutes } from './routes/push'
 import { createVoiceRoutes } from './routes/voice'
-import type { HubTunnelStreamManager } from '../socket/tunnelStreamManager'
+import type { HubTunnelStreamManager, PlannotatorTunnelWsData } from '../socket/tunnelStreamManager'
 import type { SSEManager } from '../sse/sseManager'
 import type { VisibilityTracker } from '../visibility/visibilityTracker'
 import type { Server as BunServer, ServerWebSocket } from 'bun'
@@ -448,31 +448,37 @@ export async function startWebServer(options: {
         websocket: {
             ...originalWsHandler,
             open(ws: unknown) {
-                const wsAny = ws as ServerWebSocket<{ _qwenProxy?: boolean; _geminiProxy?: boolean }>
+                const wsAny = ws as ServerWebSocket<{ _qwenProxy?: boolean; _geminiProxy?: boolean; _plannotatorTunnel?: boolean }>
                 if (wsAny.data?._geminiProxy) {
                     geminiProxyHandler.open(wsAny)
                 } else if (wsAny.data?._qwenProxy) {
                     qwenProxyHandler.open(wsAny)
+                } else if (wsAny.data?._plannotatorTunnel) {
+                    options.streamManager.onBrowserWsOpen(wsAny as unknown as ServerWebSocket<PlannotatorTunnelWsData>)
                 } else {
                     originalWsHandler.open?.(ws as never)
                 }
             },
             message(ws: unknown, message: unknown) {
-                const wsAny = ws as ServerWebSocket<{ _qwenProxy?: boolean; _geminiProxy?: boolean }>
+                const wsAny = ws as ServerWebSocket<{ _qwenProxy?: boolean; _geminiProxy?: boolean; _plannotatorTunnel?: boolean }>
                 if (wsAny.data?._geminiProxy) {
                     geminiProxyHandler.message(wsAny, message as string)
                 } else if (wsAny.data?._qwenProxy) {
                     qwenProxyHandler.message(wsAny, message as string)
+                } else if (wsAny.data?._plannotatorTunnel) {
+                    options.streamManager.onBrowserWsMessage(wsAny as unknown as ServerWebSocket<PlannotatorTunnelWsData>, message as string | ArrayBuffer | Uint8Array)
                 } else {
                     originalWsHandler.message?.(ws as never, message as never)
                 }
             },
             close(ws: unknown, code: number, reason: string) {
-                const wsAny = ws as ServerWebSocket<{ _qwenProxy?: boolean; _geminiProxy?: boolean }>
+                const wsAny = ws as ServerWebSocket<{ _qwenProxy?: boolean; _geminiProxy?: boolean; _plannotatorTunnel?: boolean }>
                 if (wsAny.data?._geminiProxy) {
                     geminiProxyHandler.close(wsAny, code, reason)
                 } else if (wsAny.data?._qwenProxy) {
                     qwenProxyHandler.close(wsAny, code, reason)
+                } else if (wsAny.data?._plannotatorTunnel) {
+                    options.streamManager.onBrowserWsClose(wsAny as unknown as ServerWebSocket<PlannotatorTunnelWsData>, code, reason)
                 } else {
                     originalWsHandler.close?.(ws as never, code as never, reason as never)
                 }
@@ -533,6 +539,37 @@ export async function startWebServer(options: {
                     return new Response('WebSocket upgrade failed', { status: 500 })
                 }
                 return undefined as unknown as Response
+            }
+
+            // Plannotator PTY WebSocket — upgrade at /plannotator/<token>/api/agent-terminal/pty/<tk>.
+            // Cookie-authenticated: the browser WS API cannot set headers, but the httpOnly auth
+            // cookie rides along same-origin. See adr/0001 Phase 4.
+            if (req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+                const ptyMatch = url.pathname.match(/^\/plannotator\/([0-9a-f]{32})\/api\/agent-terminal\/pty\/[^/]+$/)
+                if (ptyMatch) {
+                    const token = ptyMatch[1] as string
+                    const cookieHeader = req.headers.get('cookie') ?? ''
+                    const cookieMatch = cookieHeader.match(new RegExp(`(?:^|;\\s*)${AUTH_COOKIE_NAME}=([^;]+)`))
+                    const jwt = cookieMatch?.[1]
+                    if (!jwt) {
+                        return new Response('Missing authorization cookie', { status: 401 })
+                    }
+                    try {
+                        await jwtVerify(jwt, options.jwtSecret, { algorithms: ['HS256'] })
+                    } catch {
+                        return new Response('Invalid token', { status: 401 })
+                    }
+                    const prefix = `/plannotator/${token}`
+                    const wsPath = url.pathname.startsWith(prefix) ? (url.pathname.slice(prefix.length) || '/') : '/'
+                    const wsQuery = url.searchParams.toString()
+                    const upgraded = (server as unknown as { upgrade: (req: Request, opts: unknown) => boolean }).upgrade(req, {
+                        data: { _plannotatorTunnel: true as const, token, streamId: crypto.randomUUID(), wsPath, wsQuery }
+                    })
+                    if (!upgraded) {
+                        return new Response('WebSocket upgrade failed', { status: 500 })
+                    }
+                    return undefined as unknown as Response
+                }
             }
 
             return app.fetch(req)
