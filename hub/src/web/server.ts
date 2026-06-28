@@ -233,7 +233,8 @@ function createWebApp(options: {
     app.route('/api', createAuthRoutes(options.jwtSecret, options.store))
     app.route('/api', createBindRoutes(options.jwtSecret, options.store))
 
-    app.use('/api/*', createAuthMiddleware(options.jwtSecret))
+    const authMiddleware = createAuthMiddleware(options.jwtSecret)
+    app.use('/api/*', authMiddleware)
     app.route('/api', createEventsRoutes(options.getSseManager, options.getSyncEngine, options.getVisibilityTracker))
     app.route('/api', createSessionsRoutes(options.getSyncEngine))
     app.route('/api', createMessagesRoutes(options.getSyncEngine))
@@ -247,6 +248,13 @@ function createWebApp(options: {
     }))
     app.route('/api', createPushRoutes(options.store, options.vapidPublicKey))
     app.route('/api', createVoiceRoutes())
+
+    // Plannotator reverse tunnel — carve /plannotator/* out BEFORE the SPA
+    // catch-all below. Phase 0 stub: authenticate via the owner cookie and
+    // return 503 until the tunnel (Phase 1) is wired. Replaced by the tunnel
+    // proxy handler in a later phase. See adr/0001-plannotator-tunnel.md.
+    app.use('/plannotator/*', authMiddleware)
+    app.all('/plannotator/*', (c) => c.text('plannotator tunnel not available', 503))
 
     // Skip static serving in relay mode, show helpful message on root
     if (options.relayMode) {

@@ -1,6 +1,12 @@
 import type { MiddlewareHandler } from 'hono'
+import { getCookie } from 'hono/cookie'
 import { z } from 'zod'
 import { jwtVerify } from 'jose'
+
+/** httpOnly auth cookie name. Set on login alongside the bearer token so that
+ *  standalone routes (e.g. /plannotator/<token>/*) opened in a fresh browser tab
+ *  authenticate seamlessly without a Bearer header. See adr/0001-plannotator-tunnel.md. */
+export const AUTH_COOKIE_NAME = 'hapi_auth'
 
 export type WebAppEnv = {
     Variables: {
@@ -25,7 +31,8 @@ export function createAuthMiddleware(jwtSecret: Uint8Array): MiddlewareHandler<W
         const authorization = c.req.header('authorization')
         const tokenFromHeader = authorization?.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : undefined
         const tokenFromQuery = path === '/api/events' ? c.req.query().token : undefined
-        const token = tokenFromHeader ?? tokenFromQuery
+        const tokenFromCookie = getCookie(c, AUTH_COOKIE_NAME)
+        const token = tokenFromHeader ?? tokenFromQuery ?? tokenFromCookie
 
         if (!token) {
             return c.json({ error: 'Missing authorization token' }, 401)

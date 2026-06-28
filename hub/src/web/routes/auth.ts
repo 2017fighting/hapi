@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { setCookie } from 'hono/cookie'
 import { SignJWT } from 'jose'
 import { AuthRequestSchema } from '@hapi/protocol'
 import { getConfiguration } from '../../configuration'
@@ -6,7 +7,7 @@ import { constantTimeEquals } from '../../utils/crypto'
 import { parseAccessToken } from '../../utils/accessToken'
 import { validateTelegramInitData } from '../telegramInitData'
 import { getOrCreateOwnerId } from '../../config/ownerId'
-import type { WebAppEnv } from '../middleware/auth'
+import { AUTH_COOKIE_NAME, type WebAppEnv } from '../middleware/auth'
 import type { Store } from '../../store'
 
 export function createAuthRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebAppEnv> {
@@ -65,6 +66,17 @@ export function createAuthRoutes(jwtSecret: Uint8Array, store: Store): Hono<WebA
             .setIssuedAt()
             .setExpirationTime('4h')
             .sign(jwtSecret)
+
+        // Mirror the bearer token as an httpOnly cookie so standalone routes
+        // (plannotator tunnel pages) opened in a fresh tab authenticate without a
+        // Bearer header. SameSite=Lax keeps it bearer-equivalent (no new CSRF
+        // surface). See adr/0001-plannotator-tunnel.md.
+        setCookie(c, AUTH_COOKIE_NAME, token, {
+            httpOnly: true,
+            secure: true,
+            sameSite: 'Lax',
+            path: '/'
+        })
 
         return c.json({
             token,
