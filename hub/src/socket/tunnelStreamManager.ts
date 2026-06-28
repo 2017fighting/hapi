@@ -18,6 +18,8 @@ import type { TokenRegistry } from './tokenRegistry'
 const DEFAULT_IDLE_TIMEOUT_MS = 60_000
 /** Response-body send window (env-overridable). Bounds in-flight bytes from the runner. */
 const WINDOW_SIZE = resolveEnvNumber('HAPI_TUNNEL_WINDOW_SIZE', TUNNEL_DEFAULT_WINDOW_SIZE)
+/** Idle timeout for long-lived event-stream (SSE) responses — generous, since events may be sparse. */
+const DEFAULT_SSE_IDLE_TIMEOUT_MS = 30 * 60_000
 
 /** Hop-by-hop and length headers that must not be copied onto the browser response. */
 const STRIPPED_RESPONSE_HEADERS = new Set([
@@ -74,6 +76,7 @@ interface PendingStream {
     headersDone: boolean
     closed: boolean
     idleTimer: ReturnType<typeof setTimeout>
+    idleTimeoutMs: number
     // Phase 2 backpressure: buffer incoming runner bytes, flush to the browser as
     // it drains (pull), and ack the runner for bytes flushed.
     pendingChunks: Uint8Array[]
@@ -85,6 +88,7 @@ interface PendingStream {
 export class HubTunnelStreamManager {
     private readonly streams = new Map<string, PendingStream>()
     private readonly idleTimeoutMs: number
+    private readonly sseIdleTimeoutMs: number
 
     constructor(
         private readonly io: SocketServer,
@@ -92,6 +96,7 @@ export class HubTunnelStreamManager {
         options: { idleTimeoutMs?: number } = {}
     ) {
         this.idleTimeoutMs = options.idleTimeoutMs ?? resolveEnvNumber('HAPI_TUNNEL_IDLE_TIMEOUT_MS', DEFAULT_IDLE_TIMEOUT_MS)
+        this.sseIdleTimeoutMs = resolveEnvNumber('HAPI_TUNNEL_SSE_IDLE_TIMEOUT_MS', DEFAULT_SSE_IDLE_TIMEOUT_MS)
     }
 
     /**
@@ -148,6 +153,7 @@ export class HubTunnelStreamManager {
             headersDone: false,
             closed: false,
             idleTimer: setTimeout(() => this.timeoutStream(streamId), this.idleTimeoutMs),
+            idleTimeoutMs: this.idleTimeoutMs,
             pendingChunks: [],
             pendingBytes: 0,
             receivedBytes: 0,
@@ -196,6 +202,11 @@ export class HubTunnelStreamManager {
             case 'headers': {
                 pending.headersDone = true
                 pending.resolveHead({ status: meta.status, headers: meta.headers })
+                // Long-lived SSE responses get a much larger idle window (events may be sparse).
+                if ((meta.headers['content-type'] ?? '').includes('text/event-stream')) {
+                    pending.idleTimeoutMs = this.sseIdleTimeoutMs
+                    this.bumpIdle(meta.streamId)
+                }
                 if (meta.fin && buffer && !pending.closed) {
                     pending.receivedBytes += buffer.byteLength
                     pending.pendingChunks.push(buffer)
@@ -260,7 +271,7 @@ export class HubTunnelStreamManager {
             return
         }
         clearTimeout(pending.idleTimer)
-        pending.idleTimer = setTimeout(() => this.timeoutStream(streamId), this.idleTimeoutMs)
+        pending.idleTimer = setTimeout(() => this.timeoutStream(streamId), pending.idleTimeoutMs)
     }
 
     private timeoutStream(streamId: string): void {
