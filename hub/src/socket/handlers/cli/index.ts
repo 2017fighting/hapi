@@ -1,12 +1,15 @@
 import type { CodexCollaborationMode, PermissionMode } from '@hapi/protocol/types'
 import type { Store, StoredMachine, StoredSession } from '../../../store'
 import type { RpcRegistry } from '../../rpcRegistry'
+import type { TokenRegistry } from '../../tokenRegistry'
+import type { HubTunnelStreamManager } from '../../tunnelStreamManager'
 import type { SyncEvent } from '../../../sync/syncEngine'
 import type { TerminalRegistry } from '../../terminalRegistry'
 import type { CliSocketWithData, SocketServer } from '../../socketTypes'
 import type { AccessErrorReason, AccessResult } from './types'
 import { registerMachineHandlers } from './machineHandlers'
 import { registerRpcHandlers } from './rpcHandlers'
+import { registerTunnelHandlers } from './tunnelHandlers'
 import { registerSessionHandlers } from './sessionHandlers'
 import { cleanupTerminalHandlers, registerTerminalHandlers } from './terminalHandlers'
 
@@ -41,6 +44,8 @@ export type CliHandlersDeps = {
     io: SocketServer
     store: Store
     rpcRegistry: RpcRegistry
+    tokenRegistry: TokenRegistry
+    streamManager: HubTunnelStreamManager
     terminalRegistry: TerminalRegistry
     onSessionAlive?: (payload: SessionAlivePayload) => void
     onSessionReady?: (payload: SessionReadyPayload) => void
@@ -54,7 +59,7 @@ export type CliHandlersDeps = {
 }
 
 export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlersDeps): void {
-    const { io, store, rpcRegistry, terminalRegistry, onSessionAlive, onSessionReady, onSessionEnd, onMachineAlive, onWebappEvent, onBackgroundTaskDelta, onSessionActivity, onSweepImmediateQueued, onMessagesConsumed } = deps
+    const { io, store, rpcRegistry, tokenRegistry, streamManager, terminalRegistry, onSessionAlive, onSessionReady, onSessionEnd, onMachineAlive, onWebappEvent, onBackgroundTaskDelta, onSessionActivity, onSweepImmediateQueued, onMessagesConsumed } = deps
     const terminalNamespace = io.of('/terminal')
     const namespace = typeof socket.data.namespace === 'string' ? socket.data.namespace : null
 
@@ -107,6 +112,7 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
     }
 
     registerRpcHandlers(socket, rpcRegistry)
+    registerTunnelHandlers(socket, tokenRegistry, streamManager)
     registerSessionHandlers(socket, {
         store,
         resolveSessionAccess,
@@ -140,6 +146,8 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
 
     socket.on('disconnect', () => {
         rpcRegistry.unregisterAll(socket)
+        tokenRegistry.unregisterAll(socket)
+        streamManager.teardownSocket(socket.id)
         cleanupTerminalHandlers(socket, { terminalRegistry, terminalNamespace })
     })
 }

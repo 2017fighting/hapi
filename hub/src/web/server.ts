@@ -1,11 +1,11 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { serveStatic } from 'hono/bun'
 import { getConfiguration } from '../configuration'
-import { PROTOCOL_VERSION } from '@hapi/protocol'
+import { PROTOCOL_VERSION, TUNNEL_TOKEN_PATTERN } from '@hapi/protocol'
 import { buildGeminiLiveSetupMessage, QWEN_REALTIME_MODEL } from '@hapi/protocol/voice'
 import { createQwenProxyWebSocketHandler } from './qwenProxyHandler'
 import { decodeVoiceSystemPromptParam } from '../voiceSystemPromptParam'
@@ -23,6 +23,7 @@ import { createCliRoutes } from './routes/cli'
 import { createCodexDesktopRoutes } from './routes/codexDesktop'
 import { createPushRoutes } from './routes/push'
 import { createVoiceRoutes } from './routes/voice'
+import type { HubTunnelStreamManager } from '../socket/tunnelStreamManager'
 import type { SSEManager } from '../sse/sseManager'
 import type { VisibilityTracker } from '../visibility/visibilityTracker'
 import type { Server as BunServer, ServerWebSocket } from 'bun'
@@ -198,6 +199,20 @@ function serveEmbeddedAsset(asset: EmbeddedWebAsset): Response {
     })
 }
 
+/** Hop-by-hop and identity headers stripped when forwarding a browser request to the tunneled upstream. */
+const PLANNOTATOR_REQUEST_STRIP_HEADERS = new Set([
+    'connection',
+    'keep-alive',
+    'proxy-authenticate',
+    'proxy-authorization',
+    'te',
+    'trailer',
+    'transfer-encoding',
+    'upgrade',
+    'host',
+    'content-length'
+])
+
 function createWebApp(options: {
     getSyncEngine: () => SyncEngine | null
     getSseManager: () => SSEManager | null
@@ -207,6 +222,7 @@ function createWebApp(options: {
     vapidPublicKey: string
     corsOrigins?: string[]
     embeddedAssetMap: Map<string, EmbeddedWebAsset> | null
+    streamManager: HubTunnelStreamManager
     relayMode?: boolean
     officialWebUrl?: string
 }): Hono<WebAppEnv> {
@@ -254,7 +270,34 @@ function createWebApp(options: {
     // return 503 until the tunnel (Phase 1) is wired. Replaced by the tunnel
     // proxy handler in a later phase. See adr/0001-plannotator-tunnel.md.
     app.use('/plannotator/*', authMiddleware)
-    app.all('/plannotator/*', (c) => c.text('plannotator tunnel not available', 503))
+    const servePlannotatorTunnel = async (c: Context<WebAppEnv>): Promise<Response> => {
+        const token = c.req.param('token')
+        if (!token || !TUNNEL_TOKEN_PATTERN.test(token)) {
+            return new Response('not found', { status: 404 })
+        }
+        const req = c.req.raw
+        const url = new URL(req.url)
+        const prefix = `/plannotator/${token}`
+        const upstreamPath = url.pathname.startsWith(prefix) ? (url.pathname.slice(prefix.length) || '/') : '/'
+        const headers: Record<string, string> = {}
+        req.headers.forEach((value, key) => {
+            if (!PLANNOTATOR_REQUEST_STRIP_HEADERS.has(key.toLowerCase())) {
+                headers[key] = value
+            }
+        })
+        const method = c.req.method
+        const body = method === 'GET' || method === 'HEAD' ? null : (req.body as ReadableStream<Uint8Array> | null)
+        return await options.streamManager.openStream({
+            token,
+            method,
+            path: upstreamPath,
+            query: url.searchParams.toString(),
+            headers,
+            body
+        })
+    }
+    app.all('/plannotator/:token', servePlannotatorTunnel)
+    app.all('/plannotator/:token/*', servePlannotatorTunnel)
 
     // Skip static serving in relay mode, show helpful message on root
     if (options.relayMode) {
@@ -367,6 +410,7 @@ export async function startWebServer(options: {
     store: Store
     vapidPublicKey: string
     socketEngine: SocketEngine
+    streamManager: HubTunnelStreamManager
     corsOrigins?: string[]
     relayMode?: boolean
     officialWebUrl?: string
@@ -382,6 +426,7 @@ export async function startWebServer(options: {
         vapidPublicKey: options.vapidPublicKey,
         corsOrigins: options.corsOrigins,
         embeddedAssetMap,
+        streamManager: options.streamManager,
         relayMode: options.relayMode,
         officialWebUrl: options.officialWebUrl
     })

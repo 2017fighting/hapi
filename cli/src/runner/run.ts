@@ -22,6 +22,10 @@ import { cleanupRunnerState, getInstalledCliMtimeMs, isRunnerRunningCurrentlyIns
 import { startRunnerControlServer } from './controlServer';
 import { createWorktree, removeWorktree, type WorktreeInfo } from './worktree';
 import { validateWorkspaceDirectory } from './validateWorkspaceDirectory';
+import { RunnerTunnelRegistry } from './tunnel/runnerTunnelRegistry';
+import { RunnerTunnelProxy } from './tunnel/tunnelProxy';
+import { randomBytes } from 'crypto';
+import type { TunnelRegisterAck } from '@hapi/protocol';
 import { join } from 'path';
 import { buildMachineMetadata } from '@/agent/sessionFactory';
 import { resolveWorkspaceRoots } from '@/utils/workspaceRoot';
@@ -682,12 +686,30 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
     };
 
     // Start control server
+    const runnerTunnelRegistry = new RunnerTunnelRegistry();
+    let registerTunnelWithHub: ((token: string) => Promise<TunnelRegisterAck>) | null = null;
+
     const { port: controlPort, stop: stopControlServer } = await startRunnerControlServer({
       getChildren: getCurrentChildren,
       stopSession,
       spawnSession,
       requestShutdown: () => requestShutdown('hapi-cli'),
-      onHappySessionWebhook
+      onHappySessionWebhook,
+      registerTunnel: async ({ port, mode, label }) => {
+        const token = randomBytes(16).toString('hex');
+        runnerTunnelRegistry.register(token, { port, mode, label, createdAt: Date.now() });
+        const acker = registerTunnelWithHub;
+        if (!acker) {
+          runnerTunnelRegistry.delete(token);
+          throw new Error('runner is not connected to the hub yet');
+        }
+        const ack = await acker(token);
+        if (!ack.ok) {
+          runnerTunnelRegistry.delete(token);
+          throw new Error(`hub rejected tunnel registration${ack.error ? `: ${ack.error}` : ''}`);
+        }
+        return { token, publicUrl: `${configuration.apiUrl}/plannotator/${token}` };
+      }
     });
 
     // Baseline mtime at runner-process start. Immutable: per Codex review #814
@@ -784,6 +806,14 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
       stopSession,
       requestShutdown: () => requestShutdown('hapi-app')
     });
+
+    // Wire the plannotator reverse tunnel: the proxy bridges hub `tunnel:frame`
+    // streams to local plannotator ports (looked up in runnerTunnelRegistry),
+    // and registerTunnelWithHub lets the control server claim minted tokens on
+    // the hub over this socket. See adr/0001-plannotator-tunnel.md.
+    const runnerTunnelProxy = new RunnerTunnelProxy(runnerTunnelRegistry);
+    apiMachine.setTunnelProxy(runnerTunnelProxy);
+    registerTunnelWithHub = (token) => apiMachine.registerTunnel(token);
 
     // Connect to server
     apiMachine.connect();

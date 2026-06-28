@@ -106,6 +106,26 @@ export async function spawnRunnerSession(directory: string, sessionId?: string):
   return result;
 }
 
+export interface RegisterTunnelInput {
+  port: number;
+  mode?: string;
+  label?: string;
+}
+
+export interface RegisterTunnelResult {
+  token: string;
+  publicUrl: string;
+}
+
+/**
+ * Ask the running runner daemon to register a plannotator tunnel for a local
+ * `localhost:<port>` upstream and return the public hub URL it should open.
+ * See adr/0001-plannotator-tunnel.md.
+ */
+export async function registerTunnel(input: RegisterTunnelInput): Promise<RegisterTunnelResult | { error: string }> {
+  return await runnerPost('/register-tunnel', input);
+}
+
 export async function stopRunnerHttp(): Promise<void> {
   await runnerPost('/stop');
 }

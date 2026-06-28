@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { CodexCollaborationMode, PermissionMode } from './modes'
 import type { SessionEndReason } from './schemas'
+import type { TunnelFrameMeta, TunnelRegisterAck } from './tunnel'
 export { SessionEndReasonSchema, type SessionEndReason } from './schemas'
 
 export type SocketErrorReason = 'namespace-missing' | 'access-denied' | 'not-found'
@@ -197,6 +198,7 @@ export interface ServerToClientEvents {
     'terminal:resize': (data: TerminalResizePayload) => void
     'terminal:close': (data: TerminalClosePayload) => void
     error: (data: { message: string; code?: SocketErrorReason; scope?: 'session' | 'machine'; id?: string }) => void
+    'tunnel:frame': (meta: TunnelFrameMeta, buffer?: Uint8Array) => void
 }
 
 export interface ClientToServerEvents {
@@ -224,6 +226,9 @@ export interface ClientToServerEvents {
     'machine-update-state': (data: { machineId: string; expectedVersion: number; runnerState: unknown | null }, cb: (answer: MachineUpdateStateAck) => void) => void
     'rpc-register': (data: { method: string }) => void
     'rpc-unregister': (data: { method: string }) => void
+    'tunnel:register': (data: { token: string }, cb: (answer: TunnelRegisterAck) => void) => void
+    'tunnel:unregister': (data: { token: string }) => void
+    'tunnel:frame': (meta: TunnelFrameMeta, buffer?: Uint8Array) => void
     'terminal:ready': (data: TerminalReadyPayload) => void
     'terminal:output': (data: TerminalOutputPayload) => void
     'terminal:exit': (data: TerminalExitPayload) => void

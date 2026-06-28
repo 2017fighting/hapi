@@ -8,7 +8,7 @@ import { realpathSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { logger } from '@/ui/logger'
 import { configuration } from '@/configuration'
-import type { ClientToServerEvents, ServerToClientEvents, Update, UpdateMachineBody } from '@hapi/protocol'
+import type { ClientToServerEvents, ServerToClientEvents, TunnelRegisterAck, Update, UpdateMachineBody } from '@hapi/protocol'
 import type { MachineDirectoryEntry, MachineListDirectoryResponse, PathExistsResponse } from '@hapi/protocol/apiTypes'
 import { RPC_METHODS } from '@hapi/protocol/rpcMethods'
 import type { RunnerState, Machine, MachineMetadata } from './types'
@@ -16,6 +16,7 @@ import { RunnerStateSchema, MachineMetadataSchema } from './types'
 import { backoff } from '@/utils/time'
 import { getInvokedCwd } from '@/utils/invokedCwd'
 import { RpcHandlerManager } from './rpc/RpcHandlerManager'
+import type { RunnerTunnelProxy } from '@/runner/tunnel/tunnelProxy'
 import { registerCommonHandlers } from '../modules/common/registerCommonHandlers'
 import {
     listOpencodeModelsForCwd,
@@ -74,6 +75,7 @@ export class ApiMachineClient {
     private socket!: Socket<ServerToClientEvents, ClientToServerEvents>
     private keepAliveInterval: NodeJS.Timeout | null = null
     private rpcHandlerManager: RpcHandlerManager
+    private tunnelProxy: RunnerTunnelProxy | null = null
 
     private readonly normalizedWorkspaceRoots: string[] | undefined
 
@@ -308,6 +310,19 @@ export class ApiMachineClient {
         })
     }
 
+    /** Inject the plannotator tunnel proxy. Call before {@link connect}. */
+    setTunnelProxy(proxy: RunnerTunnelProxy): void {
+        this.tunnelProxy = proxy
+    }
+
+    /**
+     * Tell the hub this runner owns a plannotator tunnel token (minted locally),
+     * awaiting the hub's ack before the caller advertises the public URL.
+     */
+    async registerTunnel(token: string): Promise<TunnelRegisterAck> {
+        return await this.socket.emitWithAck('tunnel:register', { token })
+    }
+
     async updateMachineMetadata(handler: (metadata: MachineMetadata | null) => MachineMetadata): Promise<void> {
         await backoff(async () => {
             const updated = handler(this.machine.metadata)
@@ -388,6 +403,8 @@ export class ApiMachineClient {
             reconnectionDelayMax: 5000,
             ...buildSocketIoExtraHeaderOptions()
         })
+
+        this.tunnelProxy?.attach(this.socket)
 
         this.socket.on('connect', () => {
             logger.debug('[API MACHINE] Connected to bot')

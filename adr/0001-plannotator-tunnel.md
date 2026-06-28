@@ -332,3 +332,45 @@ runner `Map<streamId, {token, port, fetchController|localWs, sendWindow, unacked
   active plan-review on a given session (nice-to-have; not required).
 - Whether the generic tunnel should later carry other runner-local tools
   (decide when a second consumer appears).
+
+## Phase 1 verification (HTTP-only vertical slice)
+
+Phase 1 is implemented across the hapi repo (shared contract + hub + runner +
+cli); the plannotator base-path/hub-mode change is task #10 in the separate
+plannotator repo.
+
+**Automated coverage (all green, full workspace typecheck clean):**
+
+- Wire contract (`shared/src/tunnel.ts`): `TunnelFrameMeta` discriminated union
+  + `tunnel:register`/`tunnel:unregister`/`tunnel:frame` event types on both
+  socket maps — shared by both sides, so emitter/parser cannot drift.
+- Hub: `HubTunnelStreamManager` round-trips frames → HTTP `Response`
+  (503 unknown token, opportunistic inline `headers{fin,buffer}`, streamed
+  `headers → data+ → end`, 502 on runner error, teardown on socket disconnect);
+  `registerTunnelHandlers` validates frames with zod at the boundary.
+- Runner: `RunnerTunnelProxy` fetches `localhost:<port>` with a real local
+  server (inline small body, streamed large body, `token-unknown` error),
+  streaming the request body when present; `RunnerTunnelRegistry` unit-tested.
+- CLI: `parseRegisterArgs` (`hapi tunnel register --port/--mode/--label`).
+
+The hub and runner sides are each tested end-to-end against the shared frame
+contract; the live Socket.IO bridge between them is verified by the manual
+smoke test below (a cross-package in-process bridge test is awkward in this
+workspace — hub and cli are separate packages — and largely re-checks what the
+shared types already enforce).
+
+**Live smoke test (homelab):**
+
+1. Start the hub (`hapi hub`) and a runner (`hapi runner start-sync`).
+2. On the runner, start any local HTTP server, e.g. `python3 -m http.server 8765`.
+3. Register it: `hapi tunnel register --port 8765` → prints
+   `https://<hub>/plannotator/<token>`.
+4. Fetch the owner auth cookie (log into the hub web UI; copy the `Authorization`
+   bearer, or use the cookie set at login).
+5. `curl -k -b "hapi_auth=<jwt>" https://<hub>/plannotator/<token>/` returns the
+   tunneled directory listing; `curl … /plannotator/<token>` (no trailing slash)
+   is also routed to upstream `/`.
+6. Stop the runner → a follow-up request returns 503 (token no longer owned).
+
+Phase 2 adds the sliding-window backpressure + acks on top of this frame shape;
+SSE (Phase 3) and the PTY WebSocket (Phase 4) reuse the same stream lifecycle.

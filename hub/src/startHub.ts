@@ -229,6 +229,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         store,
         vapidPublicKey: vapidKeys.publicKey,
         socketEngine: socketServer.engine,
+        streamManager: socketServer.streamManager,
         corsOrigins,
         relayMode: relayFlag.enabled,
         officialWebUrl

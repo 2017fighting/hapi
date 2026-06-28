@@ -9,6 +9,8 @@ import { parseAccessToken } from '../utils/accessToken'
 import { registerCliHandlers } from './handlers/cli'
 import { registerTerminalHandlers } from './handlers/terminal'
 import { RpcRegistry } from './rpcRegistry'
+import { TokenRegistry } from './tokenRegistry'
+import { HubTunnelStreamManager } from './tunnelStreamManager'
 import { SOCKET_MAX_HTTP_BUFFER_SIZE } from './socketLimits'
 import type { SyncEvent } from '../sync/syncEngine'
 import { TerminalRegistry } from './terminalRegistry'
@@ -51,6 +53,8 @@ export function createSocketServer(deps: SocketServerDeps): {
     io: SocketServer
     engine: Engine
     rpcRegistry: RpcRegistry
+    tokenRegistry: TokenRegistry
+    streamManager: HubTunnelStreamManager
 } {
     const configuration = getConfiguration()
     const corsOrigins = deps.corsOrigins ?? configuration.corsOrigins
@@ -82,6 +86,8 @@ export function createSocketServer(deps: SocketServerDeps): {
     io.bind(engine)
 
     const rpcRegistry = new RpcRegistry()
+    const tokenRegistry = new TokenRegistry()
+    const streamManager = new HubTunnelStreamManager(io, tokenRegistry)
     const idleTimeoutMs = resolveEnvNumber('HAPI_TERMINAL_IDLE_TIMEOUT_MS', DEFAULT_IDLE_TIMEOUT_MS)
     const maxTerminals = resolveEnvNumber('HAPI_TERMINAL_MAX_TERMINALS', DEFAULT_MAX_TERMINALS)
     const maxTerminalsPerSocket = maxTerminals
@@ -118,6 +124,8 @@ export function createSocketServer(deps: SocketServerDeps): {
         io,
         store: deps.store,
         rpcRegistry,
+        tokenRegistry,
+        streamManager,
         terminalRegistry,
         onSessionAlive: deps.onSessionAlive,
         onSessionReady: deps.onSessionReady,
@@ -161,5 +169,5 @@ export function createSocketServer(deps: SocketServerDeps): {
         maxTerminalsPerSession
     }))
 
-    return { io, engine, rpcRegistry }
+    return { io, engine, rpcRegistry, tokenRegistry, streamManager }
 }

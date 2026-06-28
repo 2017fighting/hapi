@@ -16,13 +16,15 @@ export function startRunnerControlServer({
   stopSession,
   spawnSession,
   requestShutdown,
-  onHappySessionWebhook
+  onHappySessionWebhook,
+  registerTunnel
 }: {
   getChildren: () => TrackedSession[];
   stopSession: (sessionId: string) => boolean;
   spawnSession: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>;
   requestShutdown: () => void;
   onHappySessionWebhook: (sessionId: string, metadata: Metadata) => void;
+  registerTunnel: (input: { port: number; mode?: string; label?: string }) => Promise<{ token: string; publicUrl: string }>;
 }): Promise<{ port: number; stop: () => Promise<void> }> {
   return new Promise((resolve) => {
     const app = fastify({
@@ -189,6 +191,41 @@ export function startRunnerControlServer({
       }, 50);
 
       return { status: 'stopping' };
+    });
+
+    // Register a plannotator tunnel: mint a token locally, claim it on the hub,
+    // and return the public URL. See adr/0001-plannotator-tunnel.md.
+    typed.post('/register-tunnel', {
+      schema: {
+        body: z.object({
+          port: z.number().int().positive(),
+          mode: z.string().optional(),
+          label: z.string().optional()
+        }),
+        response: {
+          200: z.object({
+            token: z.string(),
+            publicUrl: z.string()
+          }),
+          500: z.object({
+            success: z.boolean(),
+            error: z.string().optional()
+          })
+        }
+      }
+    }, async (request, reply) => {
+      const { port, mode, label } = request.body;
+
+      logger.debug(`[CONTROL SERVER] Register tunnel for localhost:${port}`);
+      try {
+        return await registerTunnel({ port, mode, label });
+      } catch (error) {
+        reply.code(500);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
     });
 
     app.listen({ port: 0, host: '127.0.0.1' }, (err, address) => {
