@@ -141,3 +141,68 @@ describe('PermissionHandler — YOLO plan mode', () => {
         expect(result.behavior).toBe('allow');
     });
 });
+
+describe('PermissionHandler — plannotator plan review', () => {
+    it('routes exit_plan_mode to plannotator and applies its approve decision', async () => {
+        const { session, queueItems } = createFakeSession();
+        const reviewerCalls: { plan: string; permissionMode?: string }[] = [];
+        const reviewer = async (plan: string, permissionMode?: string) => {
+            reviewerCalls.push({ plan, permissionMode });
+            return { approved: true, mode: 'acceptEdits' };
+        };
+        const handler = new PermissionHandler(session, reviewer);
+        handler.handleModeChange('default');
+
+        handler.onMessage({
+            type: 'assistant',
+            message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tc-p1', name: 'exit_plan_mode', input: { plan: 'Ship the feature.' } }] },
+        } as any);
+
+        const result = await handler.handleToolCall(
+            'exit_plan_mode',
+            { plan: 'Ship the feature.' },
+            { permissionMode: 'default' } as any,
+            { signal: new AbortController().signal }
+        );
+
+        expect(reviewerCalls).toEqual([{ plan: 'Ship the feature.', permissionMode: 'default' }]);
+        expect(result).toEqual({ behavior: 'deny', message: PLAN_FAKE_REJECT });
+        expect(queueItems).toHaveLength(1);
+        expect(queueItems[0]).toEqual({ message: PLAN_FAKE_RESTART, mode: { permissionMode: 'acceptEdits' } });
+    });
+
+    it('applies a plannotator deny decision as a rejection with the reason', async () => {
+        const { session, queueItems } = createFakeSession();
+        const handler = new PermissionHandler(session, async () => ({ approved: false, reason: 'Tighten error handling.' }));
+        handler.handleModeChange('default');
+        handler.onMessage({
+            type: 'assistant',
+            message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tc-p2', name: 'exit_plan_mode', input: { plan: 'p' } }] },
+        } as any);
+
+        const result = await handler.handleToolCall('exit_plan_mode', { plan: 'p' }, { permissionMode: 'default' } as any, { signal: new AbortController().signal });
+
+        expect(result).toEqual({ behavior: 'deny', message: 'Tighten error handling.' });
+        expect(queueItems).toHaveLength(0);
+    });
+
+    it('falls back to the web UI when plannotator yields no decision', async () => {
+        const { session } = createFakeSession();
+        const handler = new PermissionHandler(session, async () => null);
+        handler.handleModeChange('default');
+        handler.onMessage({
+            type: 'assistant',
+            message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tc-p3', name: 'exit_plan_mode', input: { plan: 'p' } }] },
+        } as any);
+
+        const ac = new AbortController();
+        const promise = handler.handleToolCall('exit_plan_mode', { plan: 'p' }, { permissionMode: 'default' } as any, { signal: ac.signal });
+        // The reviewer is async, so the fall-through to handlePermissionRequest
+        // happens on the next tick — flush before asserting a request registered.
+        await new Promise((r) => setTimeout(r, 0));
+        // Falling through to the web UI registers a pending request (plannotator path never does).
+        expect(session.client.updateAgentState).toHaveBeenCalled();
+        ac.abort();
+        await expect(promise).rejects.toThrow('Permission request aborted');
+    });
+});

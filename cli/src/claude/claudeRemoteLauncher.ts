@@ -3,6 +3,14 @@ import { Session } from "./session";
 import { RemoteModeDisplay } from "@/ui/ink/RemoteModeDisplay";
 import { claudeRemote } from "./claudeRemote";
 import { PermissionHandler } from "./utils/permissionHandler";
+import { existsSync } from "node:fs";
+import {
+    launchPlannotatorPlanReview,
+    lookupOnPath,
+    resolvePlannotatorBin,
+    spawnPlannotator,
+    type PlannotatorDecision,
+} from "./utils/plannotatorLaunch";
 import { Future } from "@/utils/future";
 import { SDKAssistantMessage, SDKMessage, SDKUserMessage } from "./sdk";
 import { formatClaudeMessageForInk } from "@/ui/messageFormatterInk";
@@ -91,7 +99,26 @@ class ClaudeRemoteLauncher extends RemoteLauncherBase {
             onSwitch: () => this.handleSwitchRequest()
         });
 
-        const permissionHandler = new PermissionHandler(session);
+        // Plannotator plan review: when exit_plan_mode fires and the plannotator
+        // binary is present on this runner, route the plan to plannotator
+        // (served through the hub tunnel) instead of the built-in web-UI
+        // ExitPlanModeView. Returns null (→ web-UI fallback) when the binary is
+        // absent or yields no decision. See adr/0001-plannotator-tunnel.md Phase 5.
+        const plannotatorPlanReview = (plan: string, permissionMode?: string): Promise<PlannotatorDecision | null> => {
+            const bin = resolvePlannotatorBin({
+                env: process.env,
+                exists: existsSync,
+                which: (name) => lookupOnPath(name, process.env, existsSync),
+            });
+            if (!bin) {
+                return Promise.resolve(null);
+            }
+            return launchPlannotatorPlanReview(
+                { bin, plan, permissionMode, cwd: session.path, env: process.env },
+                spawnPlannotator,
+            );
+        };
+        const permissionHandler = new PermissionHandler(session, plannotatorPlanReview);
         this.permissionHandler = permissionHandler;
 
         const messageQueue = new OutgoingMessageQueue(

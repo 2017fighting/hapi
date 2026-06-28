@@ -21,6 +21,7 @@ import {
     type PendingPermissionRequest,
     type PermissionCompletion
 } from "@/modules/common/permission/BasePermissionHandler";
+import type { PlannotatorDecision } from "./plannotatorLaunch";
 
 interface PermissionResponse {
     id: string;
@@ -165,10 +166,21 @@ export class PermissionHandler extends BasePermissionHandler<PermissionResponse,
     private allowedBashLiterals = new Set<string>();
     private allowedBashPrefixes = new Set<string>();
     private onPermissionRequestCallback?: (toolCallId: string) => void;
+    /**
+     * Optional plannotator plan-review backend. When set and `exit_plan_mode` is
+     * requested (outside bypassPermissions), the handler routes the plan to it
+     * instead of the built-in web-UI ExitPlanModeView. Returning null (binary
+     * absent or no decision) falls back to the web UI. See adr/0001 Phase 5.
+     */
+    private readonly plannotatorPlanReview?: (plan: string, permissionMode?: string) => Promise<PlannotatorDecision | null>;
 
-    constructor(session: Session) {
+    constructor(
+        session: Session,
+        plannotatorPlanReview?: (plan: string, permissionMode?: string) => Promise<PlannotatorDecision | null>,
+    ) {
         super(session.client);
         this.session = session;
+        this.plannotatorPlanReview = plannotatorPlanReview;
     }
 
     // Read from the session so mid-turn updates via SetSessionConfig RPC
@@ -260,18 +272,11 @@ export class PermissionHandler extends BasePermissionHandler<PermissionResponse,
         if (pending.toolName === 'exit_plan_mode' || pending.toolName === 'ExitPlanMode') {
             // Handle exit_plan_mode specially
             logger.debug('Plan mode result received', response);
-            if (response.approved) {
-                logger.debug('Plan approved - injecting PLAN_FAKE_RESTART');
-                // Inject the approval message at the beginning of the queue
-                if (response.mode && PLAN_EXIT_MODES.includes(response.mode)) {
-                    this.session.queue.unshift(PLAN_FAKE_RESTART, { permissionMode: response.mode });
-                } else {
-                    this.session.queue.unshift(PLAN_FAKE_RESTART, { permissionMode: 'default' });
-                }
-                pending.resolve({ behavior: 'deny', message: PLAN_FAKE_REJECT });
-            } else {
-                pending.resolve({ behavior: 'deny', message: response.reason || 'Plan rejected' });
-            }
+            pending.resolve(this.applyExitPlanModeDecision({
+                approved: response.approved,
+                mode: response.mode,
+                reason: response.reason,
+            }));
             return completion;
         }
 
@@ -282,6 +287,26 @@ export class PermissionHandler extends BasePermissionHandler<PermissionResponse,
 
         pending.resolve(result);
         return completion;
+    }
+
+    /**
+     * Resolve an exit_plan_mode decision into the SDK permission result.
+     *
+     * On approve, inject `PLAN_FAKE_RESTART` (so the agent continues in the
+     * chosen mode) and deny the actual tool call with `PLAN_FAKE_REJECT`. On
+     * deny, reject with the user's reason. Shared by the web-UI response path
+     * and the plannotator launch path so the fake-restart mechanics stay in one
+     * place. See adr/0001 Phase 5.
+     */
+    private applyExitPlanModeDecision(decision: { approved: boolean; mode?: string; reason?: string }): PermissionResult {
+        if (decision.approved) {
+            const mode = decision.mode && PLAN_EXIT_MODES.includes(decision.mode as PermissionMode)
+                ? decision.mode as PermissionMode
+                : 'default';
+            this.session.queue.unshift(PLAN_FAKE_RESTART, { permissionMode: mode });
+            return { behavior: 'deny', message: PLAN_FAKE_REJECT };
+        }
+        return { behavior: 'deny', message: decision.reason || 'Plan rejected' };
     }
 
     /**
@@ -344,6 +369,21 @@ export class PermissionHandler extends BasePermissionHandler<PermissionResponse,
                 throw new Error(`Could not resolve tool call ID for ${toolName}`);
             }
         }
+
+        // Plannotator plan review: when wired and this is exit_plan_mode (outside
+        // bypassPermissions, which is handled above), route the plan to plannotator
+        // instead of the built-in web-UI ExitPlanModeView. A null decision (binary
+        // absent or no stdout decision) falls back to the web UI. See adr/0001 Phase 5.
+        if (this.plannotatorPlanReview && (toolName === 'exit_plan_mode' || toolName === 'ExitPlanMode')) {
+            const plan = typeof input === 'object' && input !== null
+                ? (input as { plan?: string }).plan ?? ''
+                : '';
+            const decision = await this.plannotatorPlanReview(plan, this.permissionMode);
+            if (decision) {
+                return this.applyExitPlanModeDecision(decision);
+            }
+        }
+
         return this.handlePermissionRequest(toolCallId, toolName, input, options.signal);
     }
 
