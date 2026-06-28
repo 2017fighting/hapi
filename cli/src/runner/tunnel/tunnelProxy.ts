@@ -1,10 +1,21 @@
 import type { Socket } from 'socket.io-client'
-import { TunnelFrameMetaSchema, type TunnelFrameMeta } from '@hapi/protocol'
+import { TunnelFrameMetaSchema, type TunnelFrameMeta, TunnelSendWindow, TUNNEL_DEFAULT_WINDOW_SIZE } from '@hapi/protocol'
 import { logger } from '@/ui/logger'
 import type { RunnerTunnelRegistry } from './runnerTunnelRegistry'
 
 /** Bodies at or below this size are collapsed into a single inline `headers{fin,buffer}` frame. */
 const INLINE_CAP_BYTES = 64 * 1024
+/** Max bytes per `data` frame (adr/0001 sizing). Splitting upstream chunks bounds frame size + makes the send window effective. */
+const CHUNK_SIZE = 64 * 1024
+
+function resolveWindowSize(): number {
+    const raw = process.env.HAPI_TUNNEL_WINDOW_SIZE
+    const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : TUNNEL_DEFAULT_WINDOW_SIZE
+}
+
+/** Per-direction send window (env-overridable). Bounds in-flight response bytes. */
+const WINDOW_SIZE = resolveWindowSize()
 
 interface RunnerStream {
     token: string
@@ -12,6 +23,7 @@ interface RunnerStream {
     abort: AbortController
     reqBodyController: ReadableStreamDefaultController<Uint8Array> | null
     reqBodyClosed: boolean
+    respWindow: TunnelSendWindow
 }
 
 function concatBytes(chunks: ReadonlyArray<Uint8Array>): Uint8Array {
@@ -79,6 +91,9 @@ export class RunnerTunnelProxy {
             case 'close':
                 this.abortStream(frame.streamId)
                 return
+            case 'ack':
+                this.onAck(frame.streamId, frame.upto)
+                return
             default:
                 return
         }
@@ -108,7 +123,8 @@ export class RunnerTunnelProxy {
             port: entry.port,
             abort,
             reqBodyController,
-            reqBodyClosed: false
+            reqBodyClosed: false,
+            respWindow: new TunnelSendWindow(WINDOW_SIZE)
         })
 
         const init: RequestInit & { duplex?: 'half' } = {
@@ -147,6 +163,7 @@ export class RunnerTunnelProxy {
         }
 
         const reader = body.getReader()
+        const sendWindow = this.streams.get(streamId)?.respWindow
         const buffered: Uint8Array[] = []
         let bufferedSize = 0
         let canInline = !isEventStream
@@ -168,6 +185,10 @@ export class RunnerTunnelProxy {
 
         if (canInline && bufferedSize <= INLINE_CAP_BYTES) {
             const inlineBody = buffered.length > 0 ? concatBytes(buffered) : undefined
+            if (sendWindow && inlineBody) {
+                await sendWindow.waitForRoom(inlineBody.byteLength)
+                sendWindow.recordSent(inlineBody.byteLength)
+            }
             this.emit({ type: 'headers', streamId, status: response.status, headers, fin: true }, inlineBody)
             return
         }
@@ -175,7 +196,7 @@ export class RunnerTunnelProxy {
         // Too large (or an event stream): flush the buffered prefix, then stream the rest.
         this.emit({ type: 'headers', streamId, status: response.status, headers })
         for (const chunk of buffered) {
-            this.emit({ type: 'data', streamId }, chunk)
+            await this.emitDataChunked(streamId, chunk, sendWindow)
         }
         for (;;) {
             const { done, value } = await reader.read()
@@ -183,10 +204,29 @@ export class RunnerTunnelProxy {
                 break
             }
             if (value) {
-                this.emit({ type: 'data', streamId }, value)
+                await this.emitDataChunked(streamId, value, sendWindow)
             }
         }
         this.emit({ type: 'end', streamId })
+    }
+
+    /** Emit a (possibly large) upstream chunk as ≤ CHUNK_SIZE `data` frames, each through the send window. */
+    private async emitDataChunked(streamId: string, chunk: Uint8Array, sendWindow: TunnelSendWindow | undefined): Promise<void> {
+        let offset = 0
+        while (offset < chunk.byteLength) {
+            const end = Math.min(offset + CHUNK_SIZE, chunk.byteLength)
+            const piece = chunk.subarray(offset, end)
+            if (sendWindow) {
+                await sendWindow.waitForRoom(piece.byteLength)
+                sendWindow.recordSent(piece.byteLength)
+            }
+            this.emit({ type: 'data', streamId }, piece)
+            offset = end
+        }
+    }
+
+    private onAck(streamId: string, upto: number): void {
+        this.streams.get(streamId)?.respWindow.applyAck(upto)
     }
 
     private onRequestData(streamId: string, buffer?: Uint8Array): void {

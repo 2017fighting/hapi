@@ -19,6 +19,9 @@ import { z } from 'zod'
 /** A plannotator tunnel token is an opaque 128-bit hex string minted by the runner. */
 export const TUNNEL_TOKEN_PATTERN = /^[0-9a-f]{32}$/
 
+/** Default per-direction send window (256 KiB). Env-overridable on each side. */
+export const TUNNEL_DEFAULT_WINDOW_SIZE = 256 * 1024
+
 export const TunnelErrorCodeSchema = z.enum([
     'upstream-unreachable',
     'upstream-timeout',
@@ -73,6 +76,13 @@ export const TunnelFrameMetaSchema = z.discriminatedUnion('type', [
         streamId: streamIdField,
         code: TunnelErrorCodeSchema,
         msg: z.string()
+    }),
+    // either direction — receiver reports consumed bytes so the sender's window advances.
+    z.object({
+        type: z.literal('ack'),
+        streamId: streamIdField,
+        /** Highest contiguous byte offset the receiver has consumed. */
+        upto: z.number().int().nonnegative()
     })
 ])
 export type TunnelFrameMeta = z.infer<typeof TunnelFrameMetaSchema>

@@ -1,4 +1,4 @@
-import { type TunnelFrameMeta } from '@hapi/protocol'
+import { type TunnelFrameMeta, TUNNEL_DEFAULT_WINDOW_SIZE } from '@hapi/protocol'
 import type { CliSocketWithData, SocketServer } from './socketTypes'
 import type { TokenRegistry } from './tokenRegistry'
 
@@ -16,6 +16,8 @@ import type { TokenRegistry } from './tokenRegistry'
  */
 
 const DEFAULT_IDLE_TIMEOUT_MS = 60_000
+/** Response-body send window (env-overridable). Bounds in-flight bytes from the runner. */
+const WINDOW_SIZE = resolveEnvNumber('HAPI_TUNNEL_WINDOW_SIZE', TUNNEL_DEFAULT_WINDOW_SIZE)
 
 /** Hop-by-hop and length headers that must not be copied onto the browser response. */
 const STRIPPED_RESPONSE_HEADERS = new Set([
@@ -65,12 +67,19 @@ export interface OpenStreamInput {
 interface PendingStream {
     token: string
     socketId: string
+    streamId: string
     controller: ReadableStreamDefaultController<Uint8Array>
     resolveHead: (head: { status: number; headers: Record<string, string> }) => void
     rejectHead: (error: Error) => void
     headersDone: boolean
     closed: boolean
     idleTimer: ReturnType<typeof setTimeout>
+    // Phase 2 backpressure: buffer incoming runner bytes, flush to the browser as
+    // it drains (pull), and ack the runner for bytes flushed.
+    pendingChunks: Uint8Array[]
+    pendingBytes: number
+    receivedBytes: number
+    ackedToRunner: number
 }
 
 export class HubTunnelStreamManager {
@@ -103,16 +112,24 @@ export class HubTunnelStreamManager {
 
         const streamId = mintStreamId()
         let controller!: ReadableStreamDefaultController<Uint8Array>
-        const body = new ReadableStream<Uint8Array>({
-            start: (c) => {
-                controller = c
+        let pending!: PendingStream
+        const body = new ReadableStream<Uint8Array>(
+            {
+                start: (c) => {
+                    controller = c
+                },
+                pull: () => {
+                    // Browser drained queued bytes — flush more from the buffer + ack the runner.
+                    this.flushPending(pending)
+                },
+                cancel: () => {
+                    // Browser went away — tell the runner to abort the upstream.
+                    this.sendFrame(socketId, { type: 'close', streamId })
+                    this.closeStream(streamId)
+                }
             },
-            cancel: () => {
-                // Browser went away — tell the runner to abort the upstream.
-                this.sendFrame(socketId, { type: 'close', streamId })
-                this.closeStream(streamId)
-            }
-        })
+            new ByteLengthQueuingStrategy({ highWaterMark: WINDOW_SIZE })
+        )
 
         let resolveHead!: PendingStream['resolveHead']
         let rejectHead!: PendingStream['rejectHead']
@@ -121,15 +138,20 @@ export class HubTunnelStreamManager {
             rejectHead = reject
         })
 
-        const pending: PendingStream = {
+        pending = {
             token: input.token,
             socketId,
+            streamId,
             controller,
             resolveHead,
             rejectHead,
             headersDone: false,
             closed: false,
-            idleTimer: setTimeout(() => this.timeoutStream(streamId), this.idleTimeoutMs)
+            idleTimer: setTimeout(() => this.timeoutStream(streamId), this.idleTimeoutMs),
+            pendingChunks: [],
+            pendingBytes: 0,
+            receivedBytes: 0,
+            ackedToRunner: 0
         }
         this.streams.set(streamId, pending)
 
@@ -175,7 +197,10 @@ export class HubTunnelStreamManager {
                 pending.headersDone = true
                 pending.resolveHead({ status: meta.status, headers: meta.headers })
                 if (meta.fin && buffer && !pending.closed) {
-                    pending.controller.enqueue(buffer)
+                    pending.receivedBytes += buffer.byteLength
+                    pending.pendingChunks.push(buffer)
+                    pending.pendingBytes += buffer.byteLength
+                    this.flushPending(pending)
                     pending.controller.close()
                     pending.closed = true
                     this.closeStream(meta.streamId)
@@ -184,7 +209,10 @@ export class HubTunnelStreamManager {
             }
             case 'data': {
                 if (buffer && !pending.closed) {
-                    pending.controller.enqueue(buffer)
+                    pending.receivedBytes += buffer.byteLength
+                    pending.pendingChunks.push(buffer)
+                    pending.pendingBytes += buffer.byteLength
+                    this.flushPending(pending)
                 }
                 return
             }
@@ -244,6 +272,32 @@ export class HubTunnelStreamManager {
             pending.rejectHead(new Error('idle-timeout'))
         }
         this.closeStream(streamId)
+    }
+
+    /**
+     * Move buffered runner bytes into the browser Response controller while the
+     * browser is draining (pull), and ack the runner for bytes handed off so its
+     * send window advances. Stops when the controller is saturated (backpressure).
+     */
+    private flushPending(pending: PendingStream): void {
+        if (pending.closed) {
+            return
+        }
+        while (pending.pendingChunks.length > 0) {
+            const next = pending.pendingChunks[0]
+            const desired = pending.controller.desiredSize
+            if (desired !== null && desired < next.byteLength) {
+                break
+            }
+            pending.pendingChunks.shift()
+            pending.controller.enqueue(next)
+            pending.pendingBytes -= next.byteLength
+        }
+        const ackUpto = pending.receivedBytes - pending.pendingBytes
+        if (ackUpto > pending.ackedToRunner) {
+            pending.ackedToRunner = ackUpto
+            this.sendFrame(pending.socketId, { type: 'ack', streamId: pending.streamId, upto: ackUpto })
+        }
     }
 
     private closeStream(streamId: string): void {
