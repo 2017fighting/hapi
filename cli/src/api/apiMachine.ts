@@ -317,10 +317,13 @@ export class ApiMachineClient {
 
     /**
      * Tell the hub this runner owns a plannotator tunnel token (minted locally),
-     * awaiting the hub's ack before the caller advertises the public URL.
+     * awaiting the hub's ack before the caller advertises the public URL. `mode`
+     * and `label` are forwarded so the hub can fire a `plannotator:opened`
+     * notification for self-started modes (review/annotate); see
+     * adr/0001-plannotator-tunnel.md (Phase 5 #6).
      */
-    async registerTunnel(token: string): Promise<TunnelRegisterAck> {
-        return await this.socket.emitWithAck('tunnel:register', { token })
+    async registerTunnel(token: string, meta?: { mode?: string; label?: string }): Promise<TunnelRegisterAck> {
+        return await this.socket.emitWithAck('tunnel:register', { token, mode: meta?.mode, label: meta?.label })
     }
 
     async updateMachineMetadata(handler: (metadata: MachineMetadata | null) => MachineMetadata): Promise<void> {

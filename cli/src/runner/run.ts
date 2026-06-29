@@ -687,7 +687,7 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
 
     // Start control server
     const runnerTunnelRegistry = new RunnerTunnelRegistry();
-    let registerTunnelWithHub: ((token: string) => Promise<TunnelRegisterAck>) | null = null;
+    let registerTunnelWithHub: ((token: string, meta?: { mode?: string; label?: string }) => Promise<TunnelRegisterAck>) | null = null;
 
     const { port: controlPort, stop: stopControlServer } = await startRunnerControlServer({
       getChildren: getCurrentChildren,
@@ -703,7 +703,7 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
           runnerTunnelRegistry.delete(token);
           throw new Error('runner is not connected to the hub yet');
         }
-        const ack = await acker(token);
+        const ack = await acker(token, { mode, label });
         if (!ack.ok) {
           runnerTunnelRegistry.delete(token);
           throw new Error(`hub rejected tunnel registration${ack.error ? `: ${ack.error}` : ''}`);
@@ -813,7 +813,7 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
     // the hub over this socket. See adr/0001-plannotator-tunnel.md.
     const runnerTunnelProxy = new RunnerTunnelProxy(runnerTunnelRegistry);
     apiMachine.setTunnelProxy(runnerTunnelProxy);
-    registerTunnelWithHub = (token) => apiMachine.registerTunnel(token);
+    registerTunnelWithHub = (token, meta) => apiMachine.registerTunnel(token, meta);
 
     // Connect to server
     apiMachine.connect();

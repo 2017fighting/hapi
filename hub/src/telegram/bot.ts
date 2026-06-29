@@ -10,7 +10,7 @@ import { SyncEngine, Session, type Machine } from '../sync/syncEngine'
 import { handleCallback, CallbackContext } from './callbacks'
 import { formatReadyNotification, formatSessionNotification, createNotificationKeyboard } from './sessionView'
 import { getAgentName } from '../notifications/sessionInfo'
-import type { NotificationChannel, TaskNotification } from '../notifications/notificationTypes'
+import type { NotificationChannel, PlannotatorOpenedInfo, TaskNotification } from '../notifications/notificationTypes'
 import type { Store } from '../store'
 
 export interface BotContext extends Context {
@@ -290,6 +290,35 @@ export class HappyBot implements NotificationChannel {
                 })
             } catch (error) {
                 console.error(`[HAPIBot] Failed to send task notification to chat ${chatId}:`, error)
+            }
+        }
+    }
+
+    /**
+     * Notify bound chats that a plannotator code-review / annotate session opened.
+     * Unlike session notifications (Telegram Mini App deep links), plannotator is a
+     * full web page, so the button is a plain URL button to the absolute hub URL.
+     */
+    async sendPlannotatorOpened(info: PlannotatorOpenedInfo): Promise<void> {
+        const label = info.label?.trim() || (
+            info.mode === 'review' ? 'Code review'
+                : info.mode === 'annotate' ? 'Annotate'
+                    : 'plannotator'
+        )
+        const keyboard = new InlineKeyboard().url('Open plannotator', info.url)
+
+        const chatIds = this.getBoundChatIds(info.namespace)
+        if (chatIds.length === 0) {
+            return
+        }
+
+        for (const chatId of chatIds) {
+            try {
+                await this.bot.api.sendMessage(chatId, `Plannotator opened\n\n${label}`, {
+                    reply_markup: keyboard
+                })
+            } catch (error) {
+                console.error(`[HAPIBot] Failed to send plannotator:opened notification to chat ${chatId}:`, error)
             }
         }
     }

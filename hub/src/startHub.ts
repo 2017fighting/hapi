@@ -191,7 +191,15 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         onBackgroundTaskDelta: (sessionId, delta) => syncEngine?.handleBackgroundTaskDelta(sessionId, delta),
         onSessionActivity: (sessionId, updatedAt) => syncEngine?.recordSessionActivity(sessionId, updatedAt),
         onSweepImmediateQueued: (sessionId, now) => syncEngine?.sweepImmediateQueuedOnSessionEnd(sessionId, now),
-        onMessagesConsumed: (sessionId) => syncEngine?.clearQueuedThinkingGrace(sessionId)
+        onMessagesConsumed: (sessionId) => syncEngine?.clearQueuedThinkingGrace(sessionId),
+        onPlannotatorOpened: ({ namespace, mode, label, token }) => {
+            // Phase 5 #6: a self-started plannotator session (review/annotate) just
+            // registered. Build the public + in-app URLs and fan out to the
+            // notification channels (toast-if-visible / push / Telegram).
+            const path = `/plannotator/${token}`
+            const url = `${config.publicUrl}${path}`
+            notificationHub?.notifyPlannotatorOpened({ namespace, mode, label, path, url })
+        }
     })
 
     syncEngine = new SyncEngine(store, socketServer.io, socketServer.rpcRegistry, sseManager)

@@ -31,7 +31,13 @@ export function ToastContainer() {
                             return
                         }
                         if (toast.url) {
-                            void navigate({ to: toast.url })
+                            // Plannotator (and other non-session) destinations are server-carved
+                            // full pages outside the SPA, so a client-side route transition would
+                            // miss them. Open a full navigation in a new tab to keep the hub
+                            // session open (non-disruptive); fall back to same-tab if blocked.
+                            if (!window.open(toast.url, '_blank', 'noopener')) {
+                                window.location.assign(toast.url)
+                            }
                         }
                     }}
                     onClose={() => removeToast(toast.id)}

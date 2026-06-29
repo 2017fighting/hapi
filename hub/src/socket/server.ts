@@ -6,7 +6,7 @@ import type { Store } from '../store'
 import { getConfiguration } from '../configuration'
 import { constantTimeEquals } from '../utils/crypto'
 import { parseAccessToken } from '../utils/accessToken'
-import { registerCliHandlers } from './handlers/cli'
+import { registerCliHandlers, type PlannotatorRegisterInfo } from './handlers/cli'
 import { registerTerminalHandlers } from './handlers/terminal'
 import { RpcRegistry } from './rpcRegistry'
 import { TokenRegistry } from './tokenRegistry'
@@ -47,6 +47,8 @@ export type SocketServerDeps = {
     onSessionActivity?: (sessionId: string, updatedAt: number) => void
     onSweepImmediateQueued?: (sessionId: string, now: number) => void
     onMessagesConsumed?: (sessionId: string) => void
+    /** Phase 5 #6: surface a self-started plannotator session (review/annotate). */
+    onPlannotatorOpened?: (info: PlannotatorRegisterInfo) => void
 }
 
 export function createSocketServer(deps: SocketServerDeps): {
@@ -135,7 +137,8 @@ export function createSocketServer(deps: SocketServerDeps): {
         onBackgroundTaskDelta: deps.onBackgroundTaskDelta,
         onSessionActivity: deps.onSessionActivity,
         onSweepImmediateQueued: deps.onSweepImmediateQueued,
-        onMessagesConsumed: deps.onMessagesConsumed
+        onMessagesConsumed: deps.onMessagesConsumed,
+        onPlannotatorOpened: deps.onPlannotatorOpened
     }))
 
     terminalNs.use(async (socket, next) => {

@@ -1,6 +1,6 @@
 import type { Session } from '../sync/syncEngine'
 import type { SessionEndReason } from '@hapi/protocol'
-import type { NotificationChannel, TaskNotification } from '../notifications/notificationTypes'
+import type { NotificationChannel, PlannotatorOpenedInfo, TaskNotification } from '../notifications/notificationTypes'
 import { getAgentName, getSessionName } from '../notifications/sessionInfo'
 
 function buildSessionUrl(baseUrl: string, sessionId: string): string {
@@ -64,6 +64,15 @@ export class ServerChanChannel implements NotificationChannel {
         const name = getSessionName(session)
         const url = buildSessionUrl(this.publicUrl, session.id)
         await this.send('HAPI Session completed', `${agentName} · ${name}\n\n会话已结束。\n\n${url}`)
+    }
+
+    async sendPlannotatorOpened(info: PlannotatorOpenedInfo): Promise<void> {
+        const label = info.label?.trim() || (
+            info.mode === 'review' ? 'Code review'
+                : info.mode === 'annotate' ? 'Annotate'
+                    : 'plannotator'
+        )
+        await this.send('HAPI Plannotator opened', `${label}\n\n${info.url}`)
     }
 
     private async send(title: string, desp: string): Promise<void> {

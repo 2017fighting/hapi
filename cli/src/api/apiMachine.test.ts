@@ -144,3 +144,58 @@ describe('ApiMachineClient listOpencodeModelsForCwd handler', () => {
         }
     })
 })
+
+describe('ApiMachineClient.registerTunnel', () => {
+    it('forwards token + mode/label on tunnel:register (Phase 5 #6)', async () => {
+        const client = new ApiMachineClient('cli-token', makeMachine('machine-tunnel'))
+        // Assign a fake socket directly (connect() is not invoked) — registerTunnel
+        // only touches socket.emitWithAck. Mirrors the private-field reach-through
+        // used for rpcHandlerManager above.
+        const emitted: Array<{ event: string; payload: unknown }> = []
+        ;(client as unknown as {
+            socket: { emitWithAck: (event: string, payload: unknown) => Promise<unknown>; close: () => void }
+        }).socket = {
+            emitWithAck: async (event, payload) => {
+                emitted.push({ event, payload })
+                return { ok: true }
+            },
+            close: () => {}
+        }
+
+        try {
+            const ack = await client.registerTunnel('0123456789abcdef0123456789abcdef', { mode: 'review', label: 'code review' })
+            expect(ack).toEqual({ ok: true })
+            expect(emitted).toEqual([
+                {
+                    event: 'tunnel:register',
+                    payload: { token: '0123456789abcdef0123456789abcdef', mode: 'review', label: 'code review' }
+                }
+            ])
+        } finally {
+            client.shutdown()
+        }
+    })
+
+    it('omits mode/label when not provided (backward-compatible with Phase 1–4 runners)', async () => {
+        const client = new ApiMachineClient('cli-token', makeMachine('machine-tunnel-2'))
+        const emitted: Array<{ event: string; payload: unknown }> = []
+        ;(client as unknown as {
+            socket: { emitWithAck: (event: string, payload: unknown) => Promise<unknown>; close: () => void }
+        }).socket = {
+            emitWithAck: async (event, payload) => {
+                emitted.push({ event, payload })
+                return { ok: true }
+            },
+            close: () => {}
+        }
+
+        try {
+            await client.registerTunnel('0123456789abcdef0123456789abcdef')
+            expect(emitted).toEqual([
+                { event: 'tunnel:register', payload: { token: '0123456789abcdef0123456789abcdef', mode: undefined, label: undefined } }
+            ])
+        } finally {
+            client.shutdown()
+        }
+    })
+})

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import type { Session, SyncEvent, SyncEventListener, SyncEngine } from '../sync/syncEngine'
 import type { SessionEndReason } from '@hapi/protocol'
-import type { NotificationChannel, TaskNotification } from './notificationTypes'
+import type { NotificationChannel, PlannotatorOpenedInfo, TaskNotification } from './notificationTypes'
 import { NotificationHub } from './notificationHub'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -35,6 +35,7 @@ class StubChannel implements NotificationChannel {
     readonly permissionSessions: Session[] = []
     readonly taskNotifications: Array<{ session: Session; notification: TaskNotification }> = []
     readonly sessionCompletions: Session[] = []
+    readonly plannotatorOpened: PlannotatorOpenedInfo[] = []
 
     async sendReady(session: Session): Promise<void> {
         this.readySessions.push(session)
@@ -50,6 +51,10 @@ class StubChannel implements NotificationChannel {
 
     async sendSessionCompletion(session: Session): Promise<void> {
         this.sessionCompletions.push(session)
+    }
+
+    async sendPlannotatorOpened(info: PlannotatorOpenedInfo): Promise<void> {
+        this.plannotatorOpened.push(info)
     }
 }
 
@@ -242,6 +247,31 @@ describe('NotificationHub', () => {
 
         expect(channel.sessionCompletions).toHaveLength(1)
         expect(channel.sessionCompletions[0]?.id).toBe(completedSession.id)
+
+        hub.stop()
+    })
+
+    it('dispatches plannotator:opened to every channel that implements it', async () => {
+        const engine = new FakeSyncEngine()
+        const withMethod = new StubChannel()
+        // A minimal channel that does NOT implement sendPlannotatorOpened — must be skipped, not throw.
+        const withoutMethod: NotificationChannel = {
+            sendReady: async () => {},
+            sendPermissionRequest: async () => {},
+            sendTaskNotification: async () => {}
+        }
+        const hub = new NotificationHub(engine as unknown as SyncEngine, [withoutMethod, withMethod])
+
+        const info: PlannotatorOpenedInfo = {
+            namespace: 'ns-1',
+            mode: 'review',
+            label: 'code review',
+            path: '/plannotator/abc',
+            url: 'https://hub.example/plannotator/abc'
+        }
+        await hub.notifyPlannotatorOpened(info)
+
+        expect(withMethod.plannotatorOpened).toEqual([info])
 
         hub.stop()
     })

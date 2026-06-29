@@ -1,6 +1,6 @@
 import type { Session, SyncEngine, SyncEvent } from '../sync/syncEngine'
 import type { SessionEndReason } from '@hapi/protocol'
-import type { NotificationChannel, NotificationHubOptions, TaskNotification } from './notificationTypes'
+import type { NotificationChannel, NotificationHubOptions, PlannotatorOpenedInfo, TaskNotification } from './notificationTypes'
 import { extractMessageEventType, extractTaskNotification } from './eventParsing'
 
 export class NotificationHub {
@@ -220,6 +220,24 @@ export class NotificationHub {
                 await channel.sendSessionCompletion(session, reason)
             } catch (error) {
                 console.error('[NotificationHub] Failed to send session completion notification:', error)
+            }
+        }
+    }
+
+    /**
+     * Surface a freshly-opened plannotator session (code review / annotate) through
+     * every channel — toast-if-visible / web-push / Telegram. Invoked from the hub
+     * tunnel handler on a notifiable `tunnel:register`; not driven by a sync event.
+     */
+    async notifyPlannotatorOpened(info: PlannotatorOpenedInfo): Promise<void> {
+        for (const channel of this.channels) {
+            if (typeof channel.sendPlannotatorOpened !== 'function') {
+                continue
+            }
+            try {
+                await channel.sendPlannotatorOpened(info)
+            } catch (error) {
+                console.error('[NotificationHub] Failed to send plannotator:opened notification:', error)
             }
         }
     }

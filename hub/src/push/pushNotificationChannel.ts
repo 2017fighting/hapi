@@ -1,5 +1,5 @@
 import type { Session } from '../sync/syncEngine'
-import type { NotificationChannel, TaskNotification } from '../notifications/notificationTypes'
+import type { NotificationChannel, PlannotatorOpenedInfo, TaskNotification } from '../notifications/notificationTypes'
 import { getAgentName, getSessionName } from '../notifications/sessionInfo'
 import type { SSEManager } from '../sse/sseManager'
 import type { VisibilityTracker } from '../visibility/visibilityTracker'
@@ -136,5 +136,43 @@ export class PushNotificationChannel implements NotificationChannel {
 
     private buildSessionPath(sessionId: string): string {
         return `/sessions/${sessionId}`
+    }
+
+    async sendPlannotatorOpened(info: PlannotatorOpenedInfo): Promise<void> {
+        const label = info.label?.trim() || (
+            info.mode === 'review' ? 'Code review'
+                : info.mode === 'annotate' ? 'Annotate'
+                    : 'plannotator'
+        )
+        const title = 'Plannotator opened'
+
+        // In-app toast (click navigates to the plannotator SPA route) when a web
+        // client for this namespace is visible; otherwise fall back to web-push,
+        // whose notification action opens the absolute URL. Mirrors sendPermissionRequest.
+        if (this.visibilityTracker.hasVisibleConnection(info.namespace)) {
+            const delivered = await this.sseManager.sendToast(info.namespace, {
+                type: 'toast',
+                data: {
+                    title,
+                    body: label,
+                    url: info.path
+                }
+            })
+            if (delivered > 0) {
+                return
+            }
+        }
+
+        const payload: PushPayload = {
+            title,
+            body: label,
+            tag: `plannotator-${info.path}`,
+            data: {
+                type: 'plannotator-opened',
+                sessionId: '',
+                url: info.url
+            }
+        }
+        await this.pushService.sendToNamespace(info.namespace, payload)
     }
 }

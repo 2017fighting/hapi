@@ -226,7 +226,7 @@ export interface ClientToServerEvents {
     'machine-update-state': (data: { machineId: string; expectedVersion: number; runnerState: unknown | null }, cb: (answer: MachineUpdateStateAck) => void) => void
     'rpc-register': (data: { method: string }) => void
     'rpc-unregister': (data: { method: string }) => void
-    'tunnel:register': (data: { token: string }, cb: (answer: TunnelRegisterAck) => void) => void
+    'tunnel:register': (data: { token: string; mode?: string; label?: string }, cb: (answer: TunnelRegisterAck) => void) => void
     'tunnel:unregister': (data: { token: string }) => void
     'tunnel:frame': (meta: TunnelFrameMeta, buffer?: Uint8Array) => void
     'terminal:ready': (data: TerminalReadyPayload) => void

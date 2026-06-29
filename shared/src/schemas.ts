@@ -356,7 +356,10 @@ export const SyncEventSchema = z.discriminatedUnion('type', [
         data: z.object({
             title: z.string(),
             body: z.string(),
-            sessionId: z.string(),
+            // Optional: present for session-scoped toasts (permission/ready/task) so a click
+            // navigates to that session; absent for non-session toasts (e.g. plannotator:opened),
+            // where a click navigates to `url` instead. See ToastContainer.tsx.
+            sessionId: z.string().optional(),
             url: z.string()
         })
     }),

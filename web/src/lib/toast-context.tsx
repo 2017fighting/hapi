@@ -5,7 +5,8 @@ export type Toast = {
     id: string
     title: string
     body: string
-    sessionId: string
+    /** Session-scoped toasts navigate to this session on click; absent → click navigates to `url`. */
+    sessionId?: string
     url: string
 }
 

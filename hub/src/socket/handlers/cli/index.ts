@@ -9,9 +9,11 @@ import type { CliSocketWithData, SocketServer } from '../../socketTypes'
 import type { AccessErrorReason, AccessResult } from './types'
 import { registerMachineHandlers } from './machineHandlers'
 import { registerRpcHandlers } from './rpcHandlers'
-import { registerTunnelHandlers } from './tunnelHandlers'
+import { registerTunnelHandlers, type PlannotatorRegisterInfo } from './tunnelHandlers'
 import { registerSessionHandlers } from './sessionHandlers'
 import { cleanupTerminalHandlers, registerTerminalHandlers } from './terminalHandlers'
+
+export type { PlannotatorRegisterInfo } from './tunnelHandlers'
 
 type SessionAlivePayload = {
     sid: string
@@ -56,10 +58,12 @@ export type CliHandlersDeps = {
     onSessionActivity?: (sessionId: string, updatedAt: number) => void
     onSweepImmediateQueued?: (sessionId: string, now: number) => void
     onMessagesConsumed?: (sessionId: string) => void
+    /** Phase 5 #6: surface a self-started plannotator session (review/annotate). */
+    onPlannotatorOpened?: (info: PlannotatorRegisterInfo) => void
 }
 
 export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlersDeps): void {
-    const { io, store, rpcRegistry, tokenRegistry, streamManager, terminalRegistry, onSessionAlive, onSessionReady, onSessionEnd, onMachineAlive, onWebappEvent, onBackgroundTaskDelta, onSessionActivity, onSweepImmediateQueued, onMessagesConsumed } = deps
+    const { io, store, rpcRegistry, tokenRegistry, streamManager, terminalRegistry, onSessionAlive, onSessionReady, onSessionEnd, onMachineAlive, onWebappEvent, onBackgroundTaskDelta, onSessionActivity, onSweepImmediateQueued, onMessagesConsumed, onPlannotatorOpened } = deps
     const terminalNamespace = io.of('/terminal')
     const namespace = typeof socket.data.namespace === 'string' ? socket.data.namespace : null
 
@@ -112,7 +116,7 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
     }
 
     registerRpcHandlers(socket, rpcRegistry)
-    registerTunnelHandlers(socket, tokenRegistry, streamManager)
+    registerTunnelHandlers(socket, tokenRegistry, streamManager, { onPlannotatorOpened })
     registerSessionHandlers(socket, {
         store,
         resolveSessionAccess,
