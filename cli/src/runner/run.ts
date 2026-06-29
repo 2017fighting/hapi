@@ -442,6 +442,10 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
           stdio: ['ignore', 'pipe', 'pipe'],  // Capture stdout/stderr for debugging
           env: {
             ...process.env,
+            // Marks this agent session as hapi-driven so co-installed tools can defer
+            // to hapi on events hapi owns (e.g. plannotator's ExitPlanMode hook — see
+            // adr/0001-plannotator-tunnel.md §Phase 5). Standalone agents never see it.
+            HAPI_DRIVEN: '1',
             ...extraEnv
           }
         });

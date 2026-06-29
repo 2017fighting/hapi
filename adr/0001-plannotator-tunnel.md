@@ -422,3 +422,62 @@ through the tunnel, open `/plannotator/<token>` in the browser (owner cookie), s
 terminal, and confirm the PTY is interactive end-to-end (keystrokes echo, output streams)
 through `hapi.raenzo.com`. Close the tab → the runner's local PTY WS closes; stop the runner →
 the browser PTY WS closes (1011).
+
+## Phase 5 verification (ExitPlanMode integration + notifications)
+
+Phase 5 completes the loop: hapi owns the `ExitPlanMode` event on its driven agents, launches
+plannotator through the tunnel when present, and notifies the user when a self-started
+review/annotate session opens. It lands in three shipped pieces.
+
+**Runner-side ExitPlanMode integration (`c7ad969`).** The runner's ExitPlanMode path detects the
+plannotator binary on the runner, launches it headless (base-path env, plan on stdin), registers
+the route, and feeds plannotator's stdout approve/deny (+ annotations) back as the permission
+`response` at `cli/src/claude/utils/permissionHandler.ts:260`. When plannotator is absent it falls
+back to the built-in `web/src/components/ToolCard/views/ExitPlanModeView.tsx`. `PLAN_FAKE_RESTART`
+is unchanged.
+
+**Notifications — `plannotator:opened` (`0800d19`).** When a self-started plannotator session
+(code review / annotate — the AFK-prone surfaces with no existing hub UI entry point) registers
+through the tunnel, the hub surfaces it through the existing 3-channel pipeline so the user gets an
+in-app toast or, when AFK, a web-push / Telegram message that opens `/plannotator/<token>`:
+
+- **Wire contract:** `tunnel:register` widened to carry `mode`/`label` (`shared/src/socket.ts`);
+  the runner forwards them (`cli/src/api/apiMachine.ts`, `cli/src/runner/run.ts`).
+- **Web surfacing reuses the generic `toast` SSE event** — no new SSE type. A plannotator toast
+  carries `url: '/plannotator/<token>'` and omits `sessionId`, so `ToastContainer.tsx`'s existing
+  click handler navigates in-app. (`sessionId` was made optional on the toast schema,
+  `shared/src/schemas.ts` + `web/src/lib/toast-context.tsx`.) Click-to-navigate (not `window.open`)
+  avoids popup blockers; the AFK case is covered by web-push/Telegram, which open on OS-level click.
+- **Routing is free:** the runner socket's `namespace` is already on `socket.data.namespace`
+  (`hub/src/socket/handlers/cli/index.ts`), which is how push/Telegram route today.
+- **Channel abstraction:** one optional method `sendPlannotatorOpened?(info)` added to
+  `NotificationChannel` (`hub/src/notifications/notificationTypes.ts`) and implemented by all three
+  channels (push, Telegram, ServerChan), dispatched via the new externally-invoked
+  `NotificationHub.notifyPlannotatorOpened(info)` (`hub/src/notifications/notificationHub.ts`) —
+  mirroring `notifyPermission` (toast-if-visible-else-push).
+- **Gating:** the hub fires iff `mode ∈ { 'review', 'annotate' }` (skip `'plan'` and absent) via a
+  small constant in `hub/src/socket/handlers/cli/tunnelHandlers.ts`. Plan-review is excluded because
+  the hub permission UI is already its entry point. The exact mode strings are minted by plannotator
+  (`hapi tunnel register --mode …`) and locked alongside #7 (see plannotator
+  `adr/0003-serve-via-hapi-hub-tunnel.md`).
+
+**Automated coverage (all green; shared/hub/cli/web typecheck clean):** `tunnelHandlers.test.ts`
+(registering with `mode:'review'` + a namespace calls `notifyPlannotatorOpened` with the right
+namespace/path/url; `mode:'plan'`/absent does not; the token is still registered either way);
+`notificationHub.test.ts` (invokes `sendPlannotatorOpened` on channels);
+`pushNotificationChannel.test.ts` (toast-when-visible else push, mirroring the permission test);
+`apiMachine.test.ts` (emits `tunnel:register` with `{token, mode, label}`).
+
+**Remaining (plannotator-side, #7):** plannotator drops its own `ExitPlanMode` `PermissionRequest`
+hook on hapi-driven agents (conditional self-disable via a `HAPI_DRIVEN` env marker the runner sets
+— `apps/hook/hooks/hooks.json` itself is unchanged on standalone agents), and the self-started
+review/annotate modes register with the hub emitting `mode:'review'`/`'annotate'`. The live
+end-to-end smoke test is deferred (see below).
+
+**Live smoke test (homelab — deferred):** hub up + runner connected; on the runner register a
+plannotator-shaped tunnel `hapi tunnel register --port <p> --mode review --label "code review"` →
+prints `https://<hub>/plannotator/<token>`; with the hub web UI visible (same namespace) a toast
+appears and clicking it navigates in-app to `/plannotator/<token>`; with the UI hidden (AFK) a
+web-push and/or Telegram message arrives whose action opens the URL; `--mode plan` (or no `--mode`)
+produces no toast/push (plan-review is permission-UI-driven); stop the runner → subsequent registers
+can't fire, no stray notifications.
