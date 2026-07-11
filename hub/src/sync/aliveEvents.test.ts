@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'bun:test'
 import type { SyncEvent } from '@hapi/protocol/types'
-import { Store } from '../store'
+import { createTestStore } from '../store/testStore'
 import { RpcRegistry } from '../socket/rpcRegistry'
 import type { EventPublisher } from './eventPublisher'
 import { MachineCache } from './machineCache'
 import { SessionCache } from './sessionCache'
 import { SyncEngine } from './syncEngine'
+
+const TEST_URL = process.env.TEST_DATABASE_URL
+const itPg = TEST_URL ? it : it.skip
 
 function createPublisher(events: SyncEvent[]): EventPublisher {
     return {
@@ -16,12 +19,12 @@ function createPublisher(events: SyncEvent[]): EventPublisher {
 }
 
 describe('alive incremental events', () => {
-    it('includes active=true in session alive updates', () => {
-        const store = new Store(':memory:')
+    itPg('includes active=true in session alive updates', async () => {
+        const store = await createTestStore()
         const events: SyncEvent[] = []
         const cache = new SessionCache(store, createPublisher(events))
 
-        const session = cache.getOrCreateSession(
+        const session = await cache.getOrCreateSession(
             'session-alive-test',
             { path: '/tmp/project', host: 'localhost' },
             { requests: {}, completedRequests: {} },
@@ -29,7 +32,7 @@ describe('alive incremental events', () => {
         )
 
         events.length = 0
-        cache.handleSessionAlive({ sid: session.id, time: Date.now(), thinking: false })
+        await cache.handleSessionAlive({ sid: session.id, time: Date.now(), thinking: false })
 
         const update = events.find((event) => event.type === 'session-updated')
         expect(update).toBeDefined()
@@ -40,12 +43,12 @@ describe('alive incremental events', () => {
         expect(update.data).toEqual(expect.objectContaining({ active: true }))
     })
 
-    it('emits full active machine object on machine alive', () => {
-        const store = new Store(':memory:')
+    itPg('emits full active machine object on machine alive', async () => {
+        const store = await createTestStore()
         const events: SyncEvent[] = []
         const cache = new MachineCache(store, createPublisher(events))
 
-        const machine = cache.getOrCreateMachine(
+        const machine = await cache.getOrCreateMachine(
             'machine-alive-test',
             { host: 'localhost', platform: 'linux', happyCliVersion: '0.1.0' },
             null,
@@ -53,7 +56,7 @@ describe('alive incremental events', () => {
         )
 
         events.length = 0
-        cache.handleMachineAlive({ machineId: machine.id, time: Date.now() })
+        await cache.handleMachineAlive({ machineId: machine.id, time: Date.now() })
 
         const update = events.find((event) => event.type === 'machine-updated')
         expect(update).toBeDefined()
@@ -64,8 +67,8 @@ describe('alive incremental events', () => {
         expect(update.data).toEqual(expect.objectContaining({ id: machine.id, active: true }))
     })
 
-    it('marks session thinking immediately when a user message is accepted by the hub', async () => {
-        const store = new Store(':memory:')
+    itPg('marks session thinking immediately when a user message is accepted by the hub', async () => {
+        const store = await createTestStore()
         const emittedSocketUpdates: unknown[] = []
         const io = {
             of: () => ({
@@ -88,14 +91,14 @@ describe('alive incremental events', () => {
         })
 
         try {
-            const session = engine.getOrCreateSession(
+            const session = await engine.getOrCreateSession(
                 'session-send-thinking',
                 { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
                 { requests: {}, completedRequests: {} },
                 'default'
             )
 
-            engine.handleSessionAlive({ sid: session.id, time: Date.now(), thinking: false })
+            await engine.handleSessionAlive({ sid: session.id, time: Date.now(), thinking: false })
             const activeAtBeforeSend = engine.getSession(session.id)?.activeAt
             events.length = 0
 
@@ -128,27 +131,27 @@ describe('alive incremental events', () => {
         }
     })
 
-    it('does not revive inactive sessions or refresh liveness when marking queued thinking', () => {
-        const store = new Store(':memory:')
+    itPg('does not revive inactive sessions or refresh liveness when marking queued thinking', async () => {
+        const store = await createTestStore()
         const events: SyncEvent[] = []
         const cache = new SessionCache(store, createPublisher(events))
         const now = Date.now() - 30_000
 
-        const session = cache.getOrCreateSession(
+        const session = await cache.getOrCreateSession(
             'session-queued-thinking-inactive',
             { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
             { requests: {}, completedRequests: {} },
             'default'
         )
 
-        cache.handleSessionAlive({ sid: session.id, time: now, thinking: false })
-        cache.handleSessionEnd({ sid: session.id, time: now + 1_000 })
+        await cache.handleSessionAlive({ sid: session.id, time: now, thinking: false })
+        await cache.handleSessionEnd({ sid: session.id, time: now + 1_000 })
         const inactive = cache.getSession(session.id)
         expect(inactive?.active).toBe(false)
         const inactiveActiveAt = inactive?.activeAt
 
         events.length = 0
-        cache.markMessageQueued(session.id, now + 2_000)
+        await cache.markMessageQueued(session.id, now + 2_000)
 
         const updated = cache.getSession(session.id)
         expect(updated?.active).toBe(false)
@@ -157,27 +160,27 @@ describe('alive incremental events', () => {
         expect(events.find((event) => event.type === 'session-updated')).toBeUndefined()
     })
 
-    it('keeps queued thinking true across false heartbeats during the grace window', () => {
-        const store = new Store(':memory:')
+    itPg('keeps queued thinking true across false heartbeats during the grace window', async () => {
+        const store = await createTestStore()
         const events: SyncEvent[] = []
         const cache = new SessionCache(store, createPublisher(events))
         const now = Date.now() - 30_000
 
-        const session = cache.getOrCreateSession(
+        const session = await cache.getOrCreateSession(
             'session-queued-thinking-grace',
             { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
             { requests: {}, completedRequests: {} },
             'default'
         )
 
-        cache.handleSessionAlive({ sid: session.id, time: now, thinking: false })
-        cache.markMessageQueued(session.id, now + 10)
+        await cache.handleSessionAlive({ sid: session.id, time: now, thinking: false })
+        await cache.markMessageQueued(session.id, now + 10)
         events.length = 0
 
         const originalNow = Date.now
         Date.now = () => now + 2_000
         try {
-            cache.handleSessionAlive({ sid: session.id, time: now + 2_000, thinking: false })
+            await cache.handleSessionAlive({ sid: session.id, time: now + 2_000, thinking: false })
         } finally {
             Date.now = originalNow
         }
@@ -186,24 +189,24 @@ describe('alive incremental events', () => {
         expect(events.find((event) => event.type === 'session-updated')).toBeUndefined()
     })
 
-    it('clears queued thinking after the grace window expires', () => {
-        const store = new Store(':memory:')
+    itPg('clears queued thinking after the grace window expires', async () => {
+        const store = await createTestStore()
         const events: SyncEvent[] = []
         const cache = new SessionCache(store, createPublisher(events))
         const now = Date.now() - 30_000
 
-        const session = cache.getOrCreateSession(
+        const session = await cache.getOrCreateSession(
             'session-queued-thinking-expire',
             { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
             { requests: {}, completedRequests: {} },
             'default'
         )
 
-        cache.handleSessionAlive({ sid: session.id, time: now, thinking: false })
-        cache.markMessageQueued(session.id, now + 10)
+        await cache.handleSessionAlive({ sid: session.id, time: now, thinking: false })
+        await cache.markMessageQueued(session.id, now + 10)
         events.length = 0
 
-        cache.handleSessionAlive({ sid: session.id, time: now + 16_000, thinking: false })
+        await cache.handleSessionAlive({ sid: session.id, time: now + 16_000, thinking: false })
 
         expect(cache.getSession(session.id)?.thinking).toBe(false)
         const update = events.find((event) => event.type === 'session-updated')
@@ -214,27 +217,27 @@ describe('alive incremental events', () => {
         expect(update.data).toEqual(expect.objectContaining({ thinking: false }))
     })
 
-    it('expires queued thinking against hub time instead of client heartbeat time', () => {
-        const store = new Store(':memory:')
+    itPg('expires queued thinking against hub time instead of client heartbeat time', async () => {
+        const store = await createTestStore()
         const events: SyncEvent[] = []
         const cache = new SessionCache(store, createPublisher(events))
         const now = Date.now()
 
-        const session = cache.getOrCreateSession(
+        const session = await cache.getOrCreateSession(
             'session-queued-thinking-clock-skew',
             { path: '/tmp/project', host: 'localhost', flavor: 'codex' },
             { requests: {}, completedRequests: {} },
             'default'
         )
 
-        cache.handleSessionAlive({ sid: session.id, time: now, thinking: false })
-        cache.markMessageQueued(session.id, now + 10)
+        await cache.handleSessionAlive({ sid: session.id, time: now, thinking: false })
+        await cache.markMessageQueued(session.id, now + 10)
         events.length = 0
 
         const originalNow = Date.now
         Date.now = () => now + 16_000
         try {
-            cache.handleSessionAlive({ sid: session.id, time: now - 60_000, thinking: false })
+            await cache.handleSessionAlive({ sid: session.id, time: now - 60_000, thinking: false })
         } finally {
             Date.now = originalNow
         }
