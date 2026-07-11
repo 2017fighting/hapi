@@ -99,7 +99,7 @@ describe('alive incremental events', () => {
             )
 
             await engine.handleSessionAlive({ sid: session.id, time: Date.now(), thinking: false })
-            const activeAtBeforeSend = engine.getSession(session.id)?.activeAt
+            const activeAtBeforeSend = (await engine.getSession(session.id))?.activeAt
             events.length = 0
 
             await engine.sendMessage(session.id, {
@@ -107,8 +107,8 @@ describe('alive incremental events', () => {
                 sentFrom: 'webapp'
             })
 
-            expect(engine.getSession(session.id)?.thinking).toBe(true)
-            expect(engine.getSession(session.id)?.activeAt).toBe(activeAtBeforeSend)
+            expect((await engine.getSession(session.id))?.thinking).toBe(true)
+            expect((await engine.getSession(session.id))?.activeAt).toBe(activeAtBeforeSend)
             expect(emittedSocketUpdates.length).toBeGreaterThan(0)
 
             const update = events.find((event) => {

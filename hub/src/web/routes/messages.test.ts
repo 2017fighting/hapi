@@ -28,7 +28,7 @@ function createApp(opts: {
     })
 
     const engine = {
-        resolveSessionAccess: () => ({
+        resolveSessionAccess: async () => ({
             ok: true,
             sessionId: 'session-1',
             session: { id: 'session-1', active: opts.active !== false }

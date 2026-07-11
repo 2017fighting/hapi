@@ -164,7 +164,7 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         console.log(`[Hub] Tunnel: disabled (${relayFlag.source})`)
     }
 
-    const store = new Store(config.dbPath)
+    const store = await Store.create(process.env.DATABASE_URL!)
     const jwtSecret = await getOrCreateJwtSecret()
     const vapidKeys = await getOrCreateVapidKeys(config.dataDir)
     const vapidSubject = process.env.VAPID_SUBJECT ?? 'mailto:admin@hapi.run'
@@ -313,7 +313,8 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
             notificationHub?.stop()
             syncEngine?.stop()
             sseManager?.stop()
-            webServer?.stop()
+            await webServer?.stop()
+            await store.close()
         }
     }
 }
