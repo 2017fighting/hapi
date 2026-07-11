@@ -1,23 +1,23 @@
 # Deploy with Docker
 
-Run the hapi **hub** in a container. The hub serves the web UI, the HTTP/SSE/Socket.IO APIs, and persists state in SQLite. The CLI runs on your own machines and connects to the hub — it is not part of this image.
+Run the hapi **hub** in a container. The hub serves the web UI, the HTTP/SSE/Socket.IO APIs, and persists state in PostgreSQL. The CLI runs on your own machines and connects to the hub — it is not part of this image.
 
 ## What you get
 
 - Multi-stage image: builds on `oven/bun:1`, runs on `oven/bun:1-alpine` (native musl Bun runtime).
 - Multi-arch: `linux/amd64` + `linux/arm64`.
-- Non-root user (`bun`, UID/GID 1000 — the user the `oven/bun` image already ships), a `/data` volume for state, and an HTTP healthcheck.
-- No native dependencies — SQLite is Bun's built-in `bun:sqlite`.
+- Non-root user (`bun`, UID/GID 1000 — the user the `oven/bun` image already ships), a `/data` volume for hub state, and an HTTP healthcheck.
+- State lives in an external **PostgreSQL 16+** database (`DATABASE_URL`). The compose file ships a `postgres:16` service; for plain `docker run`, point `DATABASE_URL` at your own.
 
 ## Quick start (compose)
 
 ```bash
-cp .env.example .env          # edit HAPI_PUBLIC_URL (+ optional tokens)
+cp .env.example .env          # edit HAPI_PUBLIC_URL (+ optional tokens); DATABASE_URL is set by compose
 docker compose up -d --build
 docker compose logs -f hub    # first run prints the auto-generated CLI_API_TOKEN
 ```
 
-State (SQLite DB, `CLI_API_TOKEN`, JWT/VAPID keys, `settings.json`) lives in the named `hapi-data` volume and survives container recreation.
+Hub state (`CLI_API_TOKEN`, JWT/VAPID keys, `settings.json`) lives in the named `hapi-data` volume and survives container recreation. Session/message data lives in the compose-managed `postgres:16` service (its data is in the `hapi-db` volume). To use an external PostgreSQL instead, drop the `postgres` service and set `DATABASE_URL` in `.env`.
 
 ## Quick start (plain Docker)
 
@@ -28,6 +28,7 @@ docker run -d --name hapi-hub \
   -p 3006:3006 \
   -v hapi-data:/data \
   -e HAPI_PUBLIC_URL=https://hapi.example.com \
+  -e DATABASE_URL=postgres://user:pass@db:5432/hapi \
   --restart unless-stopped \
   hapi-hub
 
@@ -70,6 +71,7 @@ All settings are environment variables, read at startup (env > `settings.json` >
 | `HAPI_LISTEN_HOST` | `0.0.0.0` (image default) | Bind address. The Dockerfile forces `0.0.0.0`. |
 | `HAPI_LISTEN_PORT` | `3006` | HTTP port. |
 | `HAPI_HOME` | `/data` (image default) | Data directory (the volume mount point). |
+| `DATABASE_URL` | — | **Required.** PostgreSQL connection string, e.g. `postgres://user:pass@host:5432/hapi`. |
 | `TELEGRAM_BOT_TOKEN` | — | Enables the Telegram bot / Mini App. |
 | `ELEVENLABS_API_KEY` | — | Enables the voice assistant. |
 
@@ -81,11 +83,12 @@ The hub's source default for `HAPI_LISTEN_HOST` is `127.0.0.1`. The Dockerfile o
 
 Everything stateful lives under `HAPI_HOME=/data`:
 
-- `hapi.db` — the SQLite database (sessions, messages, machines, users).
 - The auto-generated `CLI_API_TOKEN`, JWT secret, and VAPID keys.
 - `settings.json` — persisted configuration.
 
-**Always mount a volume** (`-v hapi-data:/data`, or the compose named volume). Without it, every container recreation loses your token (breaking all CLI/web logins) and wipes the database.
+The **database is not in `/data`** — sessions, messages, machines, and users live in PostgreSQL (`DATABASE_URL`). Back up `/data` for the token/keys/config; back up the PostgreSQL database separately for session/message data.
+
+**Always mount a volume** (`-v hapi-data:/data`, or the compose named volume). Without it, every container recreation loses your token (breaking all CLI/web logins) and regenerates keys.
 
 ### Bind-mounting a host directory (UID 1000 caveat)
 

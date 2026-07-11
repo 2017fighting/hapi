@@ -56,16 +56,24 @@ export async function setup() {
     const token = randomBytes(20).toString('base64url')
     const bunExec = findBunExec()
 
-    // Use a minimal env whitelist to prevent shell credentials (DB_PATH,
-    // TELEGRAM_BOT_TOKEN, ELEVENLABS_API_KEY, etc.) from leaking into the
-    // test hub and triggering real notifications or opening a production DB.
+    if (!process.env.TEST_DATABASE_URL) {
+        throw new Error(
+            '[globalSetup] TEST_DATABASE_URL is required to start the hub (the hub now uses PostgreSQL, not SQLite). ' +
+            'Set it to a test DB, e.g. postgres://hapitest:hapitest@127.0.0.1:5432/hapitest'
+        )
+    }
+
+    // Use a minimal env whitelist to prevent shell credentials (TELEGRAM_BOT_TOKEN,
+    // ELEVENLABS_API_KEY, etc.) from leaking into the test hub and triggering real
+    // notifications or opening a production DB. DATABASE_URL is intentionally
+    // forwarded from TEST_DATABASE_URL so the hub can reach the test Postgres.
     const hubEnv: NodeJS.ProcessEnv = {
         PATH: process.env.PATH,
         HOME: process.env.HOME,
         ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}),
         ...(process.env.BUN_INSTALL ? { BUN_INSTALL: process.env.BUN_INSTALL } : {}),
         HAPI_HOME: tmpHome,
-        DB_PATH: join(tmpHome, 'hapi.db'),
+        DATABASE_URL: process.env.TEST_DATABASE_URL,
         HAPI_LISTEN_PORT: String(port),
         HAPI_LISTEN_HOST: '127.0.0.1',
         HAPI_PUBLIC_URL: `http://127.0.0.1:${port}`,

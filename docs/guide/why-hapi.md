@@ -58,7 +58,7 @@ Each user runs their own hub. HAPI offers two modes of remote access:
 
 - **Self-hosted** (own server / Cloudflare Tunnel / Tailscale) — You control the full network path, no E2EE needed
 - **Public relay** (`hapi hub --relay`) — E2E encrypted via tunwg (WireGuard + TLS); the relay only forwards opaque packets
-- **Single embedded database** — SQLite, no external services
+- **PostgreSQL-backed** — bring your own Postgres (the compose file ships one); no Redis or separate Node.js services
 - **One-command deployment** — Single binary, zero config
 
 #### Mode 1: Self-Hosted (own server or tunnel)
@@ -163,7 +163,7 @@ The relay server only forwards encrypted packets — it cannot read your data.
 │   Single Binary (everything bundled)                              │
 │                                                                   │
 │   ┌─────────────────────────────────────────────────────────────┐ │
-│   │  CLI + Hub + Web App + Database (SQLite, embedded)          │ │
+│   │  CLI + Hub + Web App + Database (PostgreSQL)                 │ │
 │   └─────────────────────────────────────────────────────────────┘ │
 │                                                                   │
 │   Requires: One command to run                                    │
@@ -225,7 +225,7 @@ Goal: Self-hosted tool — each user runs their own hub
 | **Architecture** | Centralized cloud server | Decentralized (each user runs own hub) |
 | **Server's role** | Stores encrypted data | Relay only forwards (or none if self-hosted) |
 | **Data location** | Server (encrypted, zero-knowledge) | Local (plaintext, your machine) |
-| **Deployment** | Multiple services (PostgreSQL, Redis, Node.js) | Single binary (embedded SQLite) |
+| **Deployment** | Multiple services (PostgreSQL, Redis, Node.js) | Single binary + PostgreSQL (no Redis/Node.js) |
 | **Encryption** | Application-layer E2EE (client-side) | WireGuard + TLS (relay) or HTTPS (self-hosted) |
 | **Scaling** | Horizontal (multi-user on shared server) | Per-user (each runs own hub) |
 | **Target user** | Managed cloud service users | Self-hosters who want data sovereignty |
