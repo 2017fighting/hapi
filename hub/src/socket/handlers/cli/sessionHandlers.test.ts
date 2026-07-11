@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'bun:test'
-import { Store, type StoredSession } from '../../../store'
+import type { StoredSession } from '../../../store'
+import { createTestStore } from '../../../store/testStore'
 import type { SyncEvent } from '../../../sync/syncEngine'
 import type { CliSocketWithData } from '../../socketTypes'
 import { registerSessionHandlers } from './sessionHandlers'
 
+const TEST_URL = process.env.TEST_DATABASE_URL
+const itPg = TEST_URL ? it : it.skip
+
 class FakeSocket {
     readonly roomEvents: Array<{ room: string; event: string; data: unknown }> = []
-    private readonly handlers = new Map<string, (data: unknown, ack?: (response: unknown) => void) => void>()
+    private readonly handlers = new Map<string, (data: unknown, ack?: (response: unknown) => void) => Promise<void> | void>()
 
-    on(event: string, handler: (data: unknown, ack?: (response: unknown) => void) => void): this {
+    on(event: string, handler: (data: unknown, ack?: (response: unknown) => void) => Promise<void> | void): this {
         this.handlers.set(event, handler)
         return this
     }
@@ -21,8 +25,8 @@ class FakeSocket {
         }
     }
 
-    trigger(event: string, data: unknown, ack?: (response: unknown) => void): void {
-        this.handlers.get(event)?.(data, ack)
+    trigger(event: string, data: unknown, ack?: (response: unknown) => void): Promise<void> | void {
+        return this.handlers.get(event)?.(data, ack)
     }
 }
 
@@ -38,15 +42,15 @@ function redundantGoalStatusContent(message: string): unknown {
 }
 
 describe('cli session handlers', () => {
-    it('drops redundant goal status events before persistence and broadcast', () => {
-        const store = new Store(':memory:')
-        const session = store.sessions.getOrCreateSession('goal-status-session', {}, null, 'default')
+    itPg('drops redundant goal status events before persistence and broadcast', async () => {
+        const store = await createTestStore()
+        const session = await store.sessions.getOrCreateSession('goal-status-session', {}, null, 'default')
         const socket = new FakeSocket()
         const webEvents: SyncEvent[] = []
 
         registerSessionHandlers(socket as unknown as CliSocketWithData, {
             store,
-            resolveSessionAccess: () => ({ ok: true, value: session as StoredSession }),
+            resolveSessionAccess: async () => ({ ok: true, value: session as StoredSession }),
             emitAccessError: () => {
                 throw new Error('unexpected access error')
             },
@@ -55,19 +59,20 @@ describe('cli session handlers', () => {
             }
         })
 
-        socket.trigger('message', {
+        await socket.trigger('message', {
             sid: session.id,
             message: redundantGoalStatusContent('Goal active · 8016 tokens')
         })
 
-        expect(store.messages.getMessages(session.id)).toHaveLength(0)
+        const messages = await store.messages.getMessages(session.id)
+        expect(messages).toHaveLength(0)
         expect(socket.roomEvents).toHaveLength(0)
         expect(webEvents).toHaveLength(0)
     })
 
-    it('update-metadata broadcasts the merged value, not the pre-merge payload', () => {
-        const store = new Store(':memory:')
-        const session = store.sessions.getOrCreateSession(
+    itPg('update-metadata broadcasts the merged value, not the pre-merge payload', async () => {
+        const store = await createTestStore()
+        const session = await store.sessions.getOrCreateSession(
             'broadcast-merged',
             {
                 path: '/tmp/project',
@@ -81,14 +86,14 @@ describe('cli session handlers', () => {
 
         registerSessionHandlers(socket as unknown as CliSocketWithData, {
             store,
-            resolveSessionAccess: () => ({ ok: true, value: session as StoredSession }),
+            resolveSessionAccess: async () => ({ ok: true, value: session as StoredSession }),
             emitAccessError: () => {
                 throw new Error('unexpected access error')
             }
         })
 
         let ackResponse: unknown = null
-        socket.trigger(
+        await socket.trigger(
             'update-metadata',
             {
                 sid: session.id,

@@ -37,7 +37,7 @@ export type SocketServerDeps = {
     store: Store
     jwtSecret: Uint8Array
     corsOrigins?: string[]
-    getSession?: (sessionId: string) => { active: boolean; namespace: string } | null
+    getSession?: (sessionId: string) => Promise<{ active: boolean; namespace: string } | null>
     onWebappEvent?: (event: SyncEvent) => void
     onSessionAlive?: (payload: { sid: string; time: number; thinking?: boolean; mode?: 'local' | 'remote' }) => void
     onSessionReady?: (payload: { sid: string; time: number }) => void
@@ -164,8 +164,13 @@ export function createSocketServer(deps: SocketServerDeps): {
     })
     terminalNs.on('connection', (socket) => registerTerminalHandlers(socket, {
         io,
-        getSession: (sessionId) => {
-            return deps.getSession?.(sessionId) ?? deps.store.sessions.getSession(sessionId)
+        getSession: async (sessionId) => {
+            const explicit = await deps.getSession?.(sessionId)
+            if (explicit) {
+                return explicit
+            }
+            const session = await deps.store.sessions.getSession(sessionId)
+            return session ? { active: session.active, namespace: session.namespace } : null
         },
         terminalRegistry,
         maxTerminalsPerSocket,

@@ -62,34 +62,36 @@ export type CliHandlersDeps = {
     onPlannotatorOpened?: (info: PlannotatorRegisterInfo) => void
 }
 
-export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlersDeps): void {
+export async function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlersDeps): Promise<void> {
     const { io, store, rpcRegistry, tokenRegistry, streamManager, terminalRegistry, onSessionAlive, onSessionReady, onSessionEnd, onMachineAlive, onWebappEvent, onBackgroundTaskDelta, onSessionActivity, onSweepImmediateQueued, onMessagesConsumed, onPlannotatorOpened } = deps
     const terminalNamespace = io.of('/terminal')
     const namespace = typeof socket.data.namespace === 'string' ? socket.data.namespace : null
 
-    const resolveSessionAccess = (sessionId: string): AccessResult<StoredSession> => {
+    const resolveSessionAccess = async (sessionId: string): Promise<AccessResult<StoredSession>> => {
         if (!namespace) {
             return { ok: false, reason: 'namespace-missing' }
         }
-        const session = store.sessions.getSessionByNamespace(sessionId, namespace)
+        const session = await store.sessions.getSessionByNamespace(sessionId, namespace)
         if (session) {
             return { ok: true, value: session }
         }
-        if (store.sessions.getSession(sessionId)) {
+        const existing = await store.sessions.getSession(sessionId)
+        if (existing) {
             return { ok: false, reason: 'access-denied' }
         }
         return { ok: false, reason: 'not-found' }
     }
 
-    const resolveMachineAccess = (machineId: string): AccessResult<StoredMachine> => {
+    const resolveMachineAccess = async (machineId: string): Promise<AccessResult<StoredMachine>> => {
         if (!namespace) {
             return { ok: false, reason: 'namespace-missing' }
         }
-        const machine = store.machines.getMachineByNamespace(machineId, namespace)
+        const machine = await store.machines.getMachineByNamespace(machineId, namespace)
         if (machine) {
             return { ok: true, value: machine }
         }
-        if (store.machines.getMachine(machineId)) {
+        const existing = await store.machines.getMachine(machineId)
+        if (existing) {
             return { ok: false, reason: 'access-denied' }
         }
         return { ok: false, reason: 'not-found' }
@@ -97,12 +99,12 @@ export function registerCliHandlers(socket: CliSocketWithData, deps: CliHandlers
 
     const auth = socket.handshake.auth as Record<string, unknown> | undefined
     const sessionId = typeof auth?.sessionId === 'string' ? auth.sessionId : null
-    if (sessionId && resolveSessionAccess(sessionId).ok) {
+    if (sessionId && (await resolveSessionAccess(sessionId)).ok) {
         socket.join(`session:${sessionId}`)
     }
 
     const machineId = typeof auth?.machineId === 'string' ? auth.machineId : null
-    if (machineId && resolveMachineAccess(machineId).ok) {
+    if (machineId && (await resolveMachineAccess(machineId)).ok) {
         socket.join(`machine:${machineId}`)
     }
 

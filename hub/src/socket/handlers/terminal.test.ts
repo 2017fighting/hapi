@@ -12,13 +12,13 @@ class FakeSocket {
     readonly id: string
     readonly data: Record<string, unknown> = {}
     readonly emitted: EmittedEvent[] = []
-    private readonly handlers = new Map<string, (...args: unknown[]) => void>()
+    private readonly handlers = new Map<string, (...args: unknown[]) => Promise<void> | void>()
 
     constructor(id: string) {
         this.id = id
     }
 
-    on(event: string, handler: (...args: unknown[]) => void): this {
+    on(event: string, handler: (...args: unknown[]) => Promise<void> | void): this {
         this.handlers.set(event, handler)
         return this
     }
@@ -28,16 +28,15 @@ class FakeSocket {
         return true
     }
 
-    trigger(event: string, data?: unknown): void {
+    trigger(event: string, data?: unknown): Promise<void> | void {
         const handler = this.handlers.get(event)
         if (!handler) {
             return
         }
         if (typeof data === 'undefined') {
-            handler()
-            return
+            return handler()
         }
-        handler(data)
+        return handler(data)
     }
 }
 
@@ -80,7 +79,7 @@ function createHarness(options?: {
 
     registerTerminalHandlers(terminalSocket as unknown as SocketWithData, {
         io: io as unknown as SocketServer,
-        getSession: () => ({ active: options?.sessionActive ?? true, namespace: 'default' }),
+        getSession: async () => ({ active: options?.sessionActive ?? true, namespace: 'default' }),
         terminalRegistry,
         maxTerminalsPerSocket: options?.maxTerminalsPerSocket ?? 4,
         maxTerminalsPerSession: options?.maxTerminalsPerSession ?? 4
@@ -103,10 +102,10 @@ function lastEmit(socket: FakeSocket, event: string): EmittedEvent | undefined {
 }
 
 describe('terminal socket handlers', () => {
-    it('rejects terminal creation when session is inactive', () => {
+    it('rejects terminal creation when session is inactive', async () => {
         const { terminalSocket, terminalRegistry } = createHarness({ sessionActive: false })
 
-        terminalSocket.trigger('terminal:create', {
+        await terminalSocket.trigger('terminal:create', {
             sessionId: 'session-1',
             terminalId: 'terminal-1',
             cols: 80,
@@ -122,12 +121,12 @@ describe('terminal socket handlers', () => {
         expect(terminalRegistry.get('terminal-1')).toBeNull()
     })
 
-    it('opens a terminal and forwards write/resize/close to the CLI socket', () => {
+    it('opens a terminal and forwards write/resize/close to the CLI socket', async () => {
         const { terminalSocket, cliNamespace, terminalRegistry } = createHarness()
         const cliSocket = new FakeSocket('cli-socket-1')
         connectCliSocket(cliNamespace, cliSocket, 'session-1')
 
-        terminalSocket.trigger('terminal:create', {
+        await terminalSocket.trigger('terminal:create', {
             sessionId: 'session-1',
             terminalId: 'terminal-1',
             cols: 120,
@@ -143,7 +142,7 @@ describe('terminal socket handlers', () => {
         })
         expect(terminalRegistry.get('terminal-1')).not.toBeNull()
 
-        terminalSocket.trigger('terminal:write', {
+        await terminalSocket.trigger('terminal:write', {
             terminalId: 'terminal-1',
             data: 'ls\n'
         })
@@ -154,7 +153,7 @@ describe('terminal socket handlers', () => {
             data: 'ls\n'
         })
 
-        terminalSocket.trigger('terminal:resize', {
+        await terminalSocket.trigger('terminal:resize', {
             terminalId: 'terminal-1',
             cols: 100,
             rows: 30
@@ -167,7 +166,7 @@ describe('terminal socket handlers', () => {
             rows: 30
         })
 
-        terminalSocket.trigger('terminal:close', {
+        await terminalSocket.trigger('terminal:close', {
             terminalId: 'terminal-1'
         })
         const closeEvent = lastEmit(cliSocket, 'terminal:close')
@@ -178,19 +177,19 @@ describe('terminal socket handlers', () => {
         expect(terminalRegistry.get('terminal-1')).toBeNull()
     })
 
-    it('cleans up and notifies CLI on terminal socket disconnect', () => {
+    it('cleans up and notifies CLI on terminal socket disconnect', async () => {
         const { terminalSocket, cliNamespace, terminalRegistry } = createHarness()
         const cliSocket = new FakeSocket('cli-socket-1')
         connectCliSocket(cliNamespace, cliSocket, 'session-1')
 
-        terminalSocket.trigger('terminal:create', {
+        await terminalSocket.trigger('terminal:create', {
             sessionId: 'session-1',
             terminalId: 'terminal-1',
             cols: 90,
             rows: 24
         })
 
-        terminalSocket.trigger('disconnect')
+        await terminalSocket.trigger('disconnect')
 
         const closeEvent = lastEmit(cliSocket, 'terminal:close')
         expect(closeEvent?.data).toEqual({
@@ -200,19 +199,19 @@ describe('terminal socket handlers', () => {
         expect(terminalRegistry.get('terminal-1')).toBeNull()
     })
 
-    it('enforces per-socket terminal limits', () => {
+    it('enforces per-socket terminal limits', async () => {
         const { terminalSocket, cliNamespace } = createHarness({ maxTerminalsPerSocket: 1 })
         const cliSocket = new FakeSocket('cli-socket-1')
         connectCliSocket(cliNamespace, cliSocket, 'session-1')
 
-        terminalSocket.trigger('terminal:create', {
+        await terminalSocket.trigger('terminal:create', {
             sessionId: 'session-1',
             terminalId: 'terminal-1',
             cols: 80,
             rows: 24
         })
 
-        terminalSocket.trigger('terminal:create', {
+        await terminalSocket.trigger('terminal:create', {
             sessionId: 'session-1',
             terminalId: 'terminal-2',
             cols: 80,
