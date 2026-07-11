@@ -561,7 +561,7 @@ export class SyncEngine {
             }
             await this.sessionCache.refreshSession(sessionId)
             if (lastUsedModel && lastUsedModel.trim().length > 0) {
-                this.store.sessions.setSessionModel(sessionId, lastUsedModel.trim(), namespace, { touchUpdatedAt: false })
+                await this.store.sessions.setSessionModel(sessionId, lastUsedModel.trim(), namespace, { touchUpdatedAt: false })
                 await this.sessionCache.refreshSession(sessionId)
             }
             return { result: 'success' }
@@ -671,7 +671,7 @@ export class SyncEngine {
             // For inactive sessions, update the in-memory cache directly without
             // an RPC call — the CLI is not running yet. The updated value will be
             // passed to the spawned process when the session is resumed.
-            this.sessionCache.applySessionConfig(sessionId, config)
+            await this.sessionCache.applySessionConfig(sessionId, config)
             return
         }
 
@@ -705,7 +705,7 @@ export class SyncEngine {
             }
         }
 
-        this.sessionCache.applySessionConfig(sessionId, applied)
+        await this.sessionCache.applySessionConfig(sessionId, applied)
     }
 
     async spawnSession(
