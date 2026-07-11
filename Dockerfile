@@ -78,8 +78,9 @@ COPY --from=build --chown=1000:1000 /app/web/dist /app/web/dist
 USER bun
 WORKDIR /app/hub
 
-# SQLite DB, auto-generated CLI_API_TOKEN, JWT/VAPID keys, and settings.json all
-# live here — mount a volume or state is lost on container recreation.
+# Auto-generated CLI_API_TOKEN, JWT/VAPID keys, and settings.json live here —
+# mount a volume or state is lost on container recreation. The database is
+# external: set DATABASE_URL to a reachable PostgreSQL 16+ instance.
 VOLUME ["/data"]
 
 EXPOSE 3006

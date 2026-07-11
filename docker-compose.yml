@@ -1,11 +1,13 @@
 # hapi-hub — run behind a reverse proxy (Caddy/Traefik/nginx/Cloudflare Tunnel).
 #
-#   cp .env.example .env   # then edit
+#   cp .env.example .env   # then edit (CLI_API_TOKEN, TELEGRAM_BOT_TOKEN, ...)
 #   docker compose up -d --build
 #   docker compose logs -f hub   # first run prints the auto-generated CLI_API_TOKEN
 #
-# State (SQLite DB, CLI_API_TOKEN, JWT/VAPID keys, settings.json) lives in the
-# named `hapi-data` volume, so it survives container recreation.
+# Hub state (CLI_API_TOKEN, JWT/VAPID keys, settings.json) lives in the named
+# `hapi-data` volume. Session/message data lives in the `hapi-db` PostgreSQL
+# service below; DATABASE_URL points the hub at it. To use an external DB
+# instead, drop the `postgres` service and set DATABASE_URL in `.env`.
 
 services:
   hub:
@@ -19,11 +21,18 @@ services:
     container_name: hapi-hub
     restart: unless-stopped
 
+    depends_on:
+      postgres:
+        condition: service_healthy
+
     ports:
       - "3006:3006"
 
     env_file:
       - .env
+    environment:
+      # Compose-managed Postgres. Override in .env to point at an external DB.
+      DATABASE_URL: postgres://hapi:hapi@postgres:5432/hapi
 
     volumes:
       - hapi-data:/data
@@ -35,5 +44,21 @@ services:
       start_period: 15s
       retries: 3
 
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hapi
+      POSTGRES_USER: hapi
+      POSTGRES_PASSWORD: hapi
+    volumes:
+      - hapi-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hapi -d hapi"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
 volumes:
   hapi-data:
+  hapi-db:

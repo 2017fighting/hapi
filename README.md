@@ -21,9 +21,15 @@ https://github.com/user-attachments/assets/38230353-94c6-4dbe-9c29-b2a2cc457546
 ## Getting Started
 
 ```bash
+# 1. Have a PostgreSQL 16+ instance reachable, then export its connection string:
+export DATABASE_URL=postgres://user:pass@host:5432/hapi
+
+# 2. Start the hub (E2E encrypted relay) and run claude code:
 npx @twsxtd/hapi hub --relay     # start hub with E2E encrypted relay
 npx @twsxtd/hapi                 # run claude code
 ```
+
+> Migrating from an existing SQLite install? Run the [sqlite→postgres migration script](hub/scripts/migrate-sqlite-to-postgres.ts) — `--dry-run` first to preview, then `--force` to apply.
 
 `hapi server` remains supported as an alias.
 
