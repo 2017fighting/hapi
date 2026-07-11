@@ -153,8 +153,8 @@ export class SyncEngine {
             (sessionId, updatedAt) => this.recordSessionActivity(sessionId, updatedAt)
         )
         this.rpcGateway = new RpcGateway(io, rpcRegistry)
-        this.reloadAll()
-        this.inactivityTimer = setInterval(() => this.expireInactive(), 5_000)
+        void this.reloadAll()
+        this.inactivityTimer = setInterval(() => void this.expireInactive(), 5_000)
     }
 
     stop(): void {
@@ -173,7 +173,7 @@ export class SyncEngine {
             return event.namespace
         }
         if ('sessionId' in event) {
-            return this.getSession(event.sessionId)?.namespace
+            return this.sessionCache.getSession(event.sessionId)?.namespace
         }
         if ('machineId' in event) {
             return this.machineCache.getMachine(event.machineId)?.namespace
@@ -189,32 +189,32 @@ export class SyncEngine {
         return this.sessionCache.getSessionsByNamespace(namespace)
     }
 
-    getFutureScheduledMessageCounts(sessionIds: string[], now: number = Date.now()): Map<string, number> {
-        return this.store.messages.countFutureScheduledBySessionIds(sessionIds, now)
+    async getFutureScheduledMessageCounts(sessionIds: string[], now: number = Date.now()): Promise<Map<string, number>> {
+        return await this.store.messages.countFutureScheduledBySessionIds(sessionIds, now)
     }
 
-    getNextScheduledAtBySessionIds(sessionIds: string[], now: number = Date.now()): Map<string, number> {
-        return this.store.messages.minFutureScheduledAtBySessionIds(sessionIds, now)
+    async getNextScheduledAtBySessionIds(sessionIds: string[], now: number = Date.now()): Promise<Map<string, number>> {
+        return await this.store.messages.minFutureScheduledAtBySessionIds(sessionIds, now)
     }
 
-    getSession(sessionId: string): Session | undefined {
-        return this.sessionCache.getSession(sessionId) ?? this.sessionCache.refreshSession(sessionId) ?? undefined
+    async getSession(sessionId: string): Promise<Session | undefined> {
+        return this.sessionCache.getSession(sessionId) ?? await this.sessionCache.refreshSession(sessionId) ?? undefined
     }
 
-    getSessionByNamespace(sessionId: string, namespace: string): Session | undefined {
+    async getSessionByNamespace(sessionId: string, namespace: string): Promise<Session | undefined> {
         const session = this.sessionCache.getSessionByNamespace(sessionId, namespace)
-            ?? this.sessionCache.refreshSession(sessionId)
+            ?? await this.sessionCache.refreshSession(sessionId)
         if (!session || session.namespace !== namespace) {
             return undefined
         }
         return session
     }
 
-    resolveSessionAccess(
+    async resolveSessionAccess(
         sessionId: string,
         namespace: string
-    ): { ok: true; sessionId: string; session: Session } | { ok: false; reason: 'not-found' | 'access-denied' } {
-        return this.sessionCache.resolveSessionAccess(sessionId, namespace)
+    ): Promise<{ ok: true; sessionId: string; session: Session } | { ok: false; reason: 'not-found' | 'access-denied' }> {
+        return await this.sessionCache.resolveSessionAccess(sessionId, namespace)
     }
 
     getActiveSessions(): Session[] {
@@ -245,10 +245,10 @@ export class SyncEngine {
         return this.machineCache.getOnlineMachinesByNamespace(namespace)
     }
 
-    getMessagesPage(
+    async getMessagesPage(
         sessionId: string,
         options: { limit: number; before?: { at: number; seq: number } | null }
-    ): {
+    ): Promise<{
         messages: DecryptedMessage[]
         page: {
             limit: number
@@ -256,24 +256,24 @@ export class SyncEngine {
             nextBeforeAt: number | null
             hasMore: boolean
         }
-    } {
-        return this.messageService.getMessagesPage(sessionId, options)
+    }> {
+        return await this.messageService.getMessagesPage(sessionId, options)
     }
 
-    getSessionExport(sessionId: string, session: Session): HapiSessionExportResult {
-        return this.messageService.getSessionExport(sessionId, session)
+    async getSessionExport(sessionId: string, session: Session): Promise<HapiSessionExportResult> {
+        return await this.messageService.getSessionExport(sessionId, session)
     }
 
-    getDeliverableMessagesAfter(sessionId: string, options: { afterSeq: number; limit: number; now: number }): DecryptedMessage[] {
-        return this.messageService.getDeliverableMessagesAfter(sessionId, options)
+    async getDeliverableMessagesAfter(sessionId: string, options: { afterSeq: number; limit: number; now: number }): Promise<DecryptedMessage[]> {
+        return await this.messageService.getDeliverableMessagesAfter(sessionId, options)
     }
 
-    handleRealtimeEvent(event: SyncEvent): void {
+    async handleRealtimeEvent(event: SyncEvent): Promise<void> {
         if (event.type === 'session-updated' && event.sessionId) {
             // Snapshot agent session IDs before refresh — safe because JS is single-threaded
             // and refreshSession replaces the Map entry with a new object.
             const before = this.sessionCache.getSession(event.sessionId)
-            this.sessionCache.refreshSession(event.sessionId)
+            await this.sessionCache.refreshSession(event.sessionId)
             const after = this.sessionCache.getSession(event.sessionId)
             if (after?.metadata && !this.hasSameAgentSessionIds(before?.metadata ?? null, after.metadata)) {
                 if (!this.canRunCursorDedup(after)) {
@@ -287,20 +287,20 @@ export class SyncEngine {
         }
 
         if (event.type === 'machine-updated' && event.machineId) {
-            this.machineCache.refreshMachine(event.machineId)
+            await this.machineCache.refreshMachine(event.machineId)
             return
         }
 
         if (event.type === 'message-received' && event.sessionId) {
-            if (!this.getSession(event.sessionId)) {
-                this.sessionCache.refreshSession(event.sessionId)
+            if (!this.sessionCache.getSession(event.sessionId)) {
+                await this.sessionCache.refreshSession(event.sessionId)
             }
         }
 
         this.eventPublisher.emit(event)
     }
 
-    handleSessionAlive(payload: {
+    async handleSessionAlive(payload: {
         sid: string
         time: number
         thinking?: boolean
@@ -311,8 +311,8 @@ export class SyncEngine {
         effort?: string | null
         serviceTier?: string | null
         collaborationMode?: CodexCollaborationMode
-    }): void {
-        this.sessionCache.handleSessionAlive(payload)
+    }): Promise<void> {
+        await this.sessionCache.handleSessionAlive(payload)
         this.triggerDedupIfNeeded(payload.sid)
     }
 
@@ -325,13 +325,13 @@ export class SyncEngine {
         this.sessionCache.clearQueuedThinkingGrace(sessionId)
     }
 
-    handleSessionEnd(payload: { sid: string; time: number; reason?: 'completed' | 'terminated' | 'error' }): void {
+    async handleSessionEnd(payload: { sid: string; time: number; reason?: 'completed' | 'terminated' | 'error' }): Promise<void> {
         const before = this.sessionCache.getSession(payload.sid)
         const isCursorAcp = before?.metadata?.flavor === 'cursor'
             && before.metadata.cursorSessionProtocol === 'acp'
         const shouldRetryDedup = !isCursorAcp || this.sessionReadyIds.has(payload.sid)
 
-        this.sessionCache.handleSessionEnd(payload)
+        await this.sessionCache.handleSessionEnd(payload)
         this.eventPublisher.emit({
             type: 'session-ended',
             sessionId: payload.sid,
@@ -350,15 +350,15 @@ export class SyncEngine {
         this.sessionCache.applyBackgroundTaskDelta(sessionId, delta)
     }
 
-    recordSessionActivity(sessionId: string, updatedAt: number): void {
-        this.sessionCache.recordSessionActivity(sessionId, updatedAt)
+    async recordSessionActivity(sessionId: string, updatedAt: number): Promise<void> {
+        await this.sessionCache.recordSessionActivity(sessionId, updatedAt)
     }
 
-    handleMachineAlive(payload: { machineId: string; time: number }): void {
-        this.machineCache.handleMachineAlive(payload)
+    async handleMachineAlive(payload: { machineId: string; time: number }): Promise<void> {
+        await this.machineCache.handleMachineAlive(payload)
     }
 
-    private expireInactive(): void {
+    private async expireInactive(): Promise<void> {
         const expired = this.sessionCache.expireInactive()
         // Sort by most recent first so dedup keeps the newest session when multiple
         // duplicates for the same agent thread expire in the same sweep.
@@ -372,15 +372,15 @@ export class SyncEngine {
         this.machineCache.expireInactive()
         // Piggybacked on the inactivity tick; not a logical part of expireInactive
         // but shares its 5s cadence (avoids a second timer).
-        this.messageService.releaseMatureScheduledMessages(Date.now())
+        await this.messageService.releaseMatureScheduledMessages(Date.now())
     }
 
-    private reloadAll(): void {
-        this.sessionCache.reloadAll()
-        this.machineCache.reloadAll()
+    private async reloadAll(): Promise<void> {
+        await this.sessionCache.reloadAll()
+        await this.machineCache.reloadAll()
     }
 
-    getOrCreateSession(
+    async getOrCreateSession(
         tag: string,
         metadata: unknown,
         agentState: unknown,
@@ -388,12 +388,12 @@ export class SyncEngine {
         model?: string,
         effort?: string,
         modelReasoningEffort?: string
-    ): Session {
-        return this.sessionCache.getOrCreateSession(tag, metadata, agentState, namespace, model, effort, modelReasoningEffort)
+    ): Promise<Session> {
+        return await this.sessionCache.getOrCreateSession(tag, metadata, agentState, namespace, model, effort, modelReasoningEffort)
     }
 
-    getOrCreateMachine(id: string, metadata: unknown, runnerState: unknown, namespace: string): Machine {
-        return this.machineCache.getOrCreateMachine(id, metadata, runnerState, namespace)
+    async getOrCreateMachine(id: string, metadata: unknown, runnerState: unknown, namespace: string): Promise<Machine> {
+        return await this.machineCache.getOrCreateMachine(id, metadata, runnerState, namespace)
     }
 
     async sendMessage(
@@ -414,8 +414,8 @@ export class SyncEngine {
         }
     ): Promise<void> {
         await this.messageService.sendMessage(sessionId, payload)
-        this.sessionCache.markMessageQueued(sessionId)
-        this.sessionCache.recordSessionActivity(sessionId, Date.now())
+        await this.sessionCache.markMessageQueued(sessionId)
+        await this.sessionCache.recordSessionActivity(sessionId, Date.now())
     }
 
     async cancelQueuedMessage(
@@ -425,8 +425,8 @@ export class SyncEngine {
         return this.messageService.cancelQueuedMessage(sessionId, messageId)
     }
 
-    sweepImmediateQueuedOnSessionEnd(sessionId: string, invokedAt: number): void {
-        this.messageService.sweepImmediateQueuedOnSessionEnd(sessionId, invokedAt)
+    async sweepImmediateQueuedOnSessionEnd(sessionId: string, invokedAt: number): Promise<{ localIds: string[]; invokedAt: number } | null> {
+        return await this.messageService.sweepImmediateQueuedOnSessionEnd(sessionId, invokedAt)
     }
 
     async approvePermission(
@@ -466,12 +466,12 @@ export class SyncEngine {
             await this.rpcGateway.killSession(sessionId)
         } catch (error) {
             if (error instanceof RpcTargetMissingError) {
-                this.sessionCache.markSessionArchivedFromHub(sessionId, 'Archived from hub (CLI unreachable)')
+                await this.sessionCache.markSessionArchivedFromHub(sessionId, 'Archived from hub (CLI unreachable)')
             } else {
                 throw error
             }
         }
-        this.handleSessionEnd({ sid: sessionId, time: Date.now() })
+        await this.handleSessionEnd({ sid: sessionId, time: Date.now() })
     }
 
     /**
@@ -487,14 +487,14 @@ export class SyncEngine {
      * succeeds. Kept on the engine (not on the migrator) so that all hapi.db
      * writes funnel through the existing cache-refresh path.
      */
-    flipCursorSessionProtocolToAcp(
+    async flipCursorSessionProtocolToAcp(
         sessionId: string,
         namespace: string,
         lastUsedModel: string | null
-    ): { result: 'success' | 'version-mismatch' | 'not-found' | 'session-active' } {
+    ): Promise<{ result: 'success' | 'version-mismatch' | 'not-found' | 'session-active' }> {
         for (let attempt = 0; attempt < 2; attempt += 1) {
             const latest = this.sessionCache.getSessionByNamespace(sessionId, namespace)
-                ?? this.sessionCache.refreshSession(sessionId)
+                ?? await this.sessionCache.refreshSession(sessionId)
             if (!latest?.metadata) {
                 return { result: 'not-found' }
             }
@@ -545,7 +545,7 @@ export class SyncEngine {
             if (carriedMigrationState !== undefined) {
                 delete nextMetadata.cursorMigrationState
             }
-            const result = this.store.sessions.updateSessionMetadata(
+            const result = await this.store.sessions.updateSessionMetadata(
                 sessionId,
                 nextMetadata,
                 latest.metadataVersion,
@@ -553,16 +553,16 @@ export class SyncEngine {
                 { touchUpdatedAt: false }
             )
             if (result.result === 'version-mismatch') {
-                this.sessionCache.refreshSession(sessionId)
+                await this.sessionCache.refreshSession(sessionId)
                 continue
             }
             if (result.result !== 'success') {
                 return { result: 'not-found' }
             }
-            this.sessionCache.refreshSession(sessionId)
+            await this.sessionCache.refreshSession(sessionId)
             if (lastUsedModel && lastUsedModel.trim().length > 0) {
                 this.store.sessions.setSessionModel(sessionId, lastUsedModel.trim(), namespace, { touchUpdatedAt: false })
-                this.sessionCache.refreshSession(sessionId)
+                await this.sessionCache.refreshSession(sessionId)
             }
             return { result: 'success' }
         }
@@ -580,12 +580,12 @@ export class SyncEngine {
         request: CursorMigrateToAcpRequest
     ): Promise<CursorMigrateOutcome> {
         const session = this.sessionCache.getSessionByNamespace(sessionId, namespace)
-            ?? this.sessionCache.refreshSession(sessionId)
+            ?? await this.sessionCache.refreshSession(sessionId)
         if (!session) {
             return { ok: false, sessionId, reason: 'internal_error', message: 'session not found in namespace', durationMs: 0 }
         }
         const migrator = this.buildMigratorForRequest(request)
-        return migrator.migrateOne(session, {
+        return await migrator.migrateOne(session, {
             keepSource: request.keepSource,
             forceArchiveRunning: request.forceArchiveRunning,
             skipVerify: request.skipVerify
@@ -613,8 +613,8 @@ export class SyncEngine {
                     cursorSessionProtocol: typeof s.metadata?.cursorSessionProtocol === 'string' ? s.metadata.cursorSessionProtocol : undefined
                 }
             },
-            updateSessionAfterMigrate: (sessionId, namespace, lastUsedModel) => {
-                const result = this.flipCursorSessionProtocolToAcp(sessionId, namespace, lastUsedModel)
+            updateSessionAfterMigrate: async (sessionId, namespace, lastUsedModel) => {
+                const result = await this.flipCursorSessionProtocolToAcp(sessionId, namespace, lastUsedModel)
                 if (result.result === 'success') return { ok: true }
                 if (result.result === 'session-active') return { ok: false, reason: 'session_active' as const }
                 return { ok: false, reason: 'version_mismatch_or_missing' as const }
@@ -624,9 +624,9 @@ export class SyncEngine {
             // count. The store-handle stays on the engine; we only thread
             // the count through so the migrator stays free of a direct
             // hub.Store dependency.
-            getHapiMessageCount: (sessionId, _namespace) => {
+            getHapiMessageCount: async (sessionId, _namespace) => {
                 try {
-                    return this.store.messages.countMessages(sessionId)
+                    return await this.store.messages.countMessages(sessionId)
                 } catch (err) {
                     // tiann/hapi#873 cold review: a silent 0 here trips
                     // the migrator's "skip sanity" branch and chronically
@@ -743,7 +743,7 @@ export class SyncEngine {
         return isKnownFlavor(flavor) ? flavor : 'claude'
     }
 
-    private resolveAgentResumeId(session: Session, namespace: string): string | null {
+    private async resolveAgentResumeId(session: Session, namespace: string): Promise<string | null> {
         const metadata = session.metadata
         if (!metadata) {
             return null
@@ -757,11 +757,11 @@ export class SyncEngine {
         if (flavor === 'kimi') return metadata.kimiSessionId ?? null
         if (flavor === 'pi') return metadata.piSessionId ?? null
 
-        return metadata.claudeSessionId ?? this.recoverClaudeSessionIdFromMessages(session.id, namespace)
+        return metadata.claudeSessionId ?? await this.recoverClaudeSessionIdFromMessages(session.id, namespace)
     }
 
-    resolveLocalResumeTarget(sessionId: string, namespace: string): LocalResumeTargetResult {
-        const access = this.sessionCache.resolveSessionAccess(sessionId, namespace)
+    async resolveLocalResumeTarget(sessionId: string, namespace: string): Promise<LocalResumeTargetResult> {
+        const access = await this.sessionCache.resolveSessionAccess(sessionId, namespace)
         if (!access.ok) {
             return {
                 type: 'error',
@@ -776,7 +776,7 @@ export class SyncEngine {
             return { type: 'error', message: 'Session metadata missing path', code: 'resume_unavailable' }
         }
 
-        const agentSessionId = this.resolveAgentResumeId(session, namespace)
+        const agentSessionId = await this.resolveAgentResumeId(session, namespace)
         if (!agentSessionId) {
             return {
                 type: 'error',
@@ -806,39 +806,42 @@ export class SyncEngine {
         }
     }
 
-    listLocalResumableSessions(namespace: string, opts?: { machineId?: string }): ResumableSession[] {
-        return this.getSessionsByNamespace(namespace)
-            .map((session) => this.resolveLocalResumeTarget(session.id, namespace))
-            .filter((result): result is { type: 'success'; target: LocalResumeTarget } => result.type === 'success')
-            .map(({ target }) => {
-                const session = this.getSessionByNamespace(target.sessionId, namespace)
-                return {
-                    sessionId: target.sessionId,
-                    flavor: target.flavor,
-                    directory: target.directory,
-                    machineId: target.machineId,
-                    host: target.host,
-                    active: target.active,
-                    thinking: target.thinking,
-                    controlledByUser: target.controlledByUser,
-                    agentSessionId: target.agentSessionId,
-                    model: target.model,
-                    effort: target.effort,
-                    modelReasoningEffort: target.modelReasoningEffort,
-                    permissionMode: target.permissionMode,
-                    collaborationMode: target.collaborationMode,
-                    updatedAt: session?.updatedAt ?? 0,
-                    name: session?.metadata?.name,
-                    summary: session?.metadata?.summary?.text,
-                    firstUserMessage: this.resolveFirstUserMessage(target.sessionId)
-                }
+    async listLocalResumableSessions(namespace: string, opts?: { machineId?: string }): Promise<ResumableSession[]> {
+        const sessions = this.getSessionsByNamespace(namespace)
+        const results: ResumableSession[] = []
+        for (const session of sessions) {
+            const targetResult = await this.resolveLocalResumeTarget(session.id, namespace)
+            if (targetResult.type !== 'success') continue
+            const { target } = targetResult
+            const sessionRow = await this.getSessionByNamespace(target.sessionId, namespace)
+            results.push({
+                sessionId: target.sessionId,
+                flavor: target.flavor,
+                directory: target.directory,
+                machineId: target.machineId,
+                host: target.host,
+                active: target.active,
+                thinking: target.thinking,
+                controlledByUser: target.controlledByUser,
+                agentSessionId: target.agentSessionId,
+                model: target.model,
+                effort: target.effort,
+                modelReasoningEffort: target.modelReasoningEffort,
+                permissionMode: target.permissionMode,
+                collaborationMode: target.collaborationMode,
+                updatedAt: sessionRow?.updatedAt ?? 0,
+                name: sessionRow?.metadata?.name,
+                summary: sessionRow?.metadata?.summary?.text,
+                firstUserMessage: await this.resolveFirstUserMessage(target.sessionId)
             })
+        }
+        return results
             .filter((session) => !opts?.machineId || session.machineId === opts.machineId)
             .sort((a, b) => b.updatedAt - a.updatedAt)
     }
 
-    private resolveFirstUserMessage(sessionId: string): string | undefined {
-        for (const message of this.store.messages.getFirstMessages(sessionId, 50)) {
+    private async resolveFirstUserMessage(sessionId: string): Promise<string | undefined> {
+        for (const message of await this.store.messages.getFirstMessages(sessionId, 50)) {
             const roleWrapped = unwrapRoleWrappedRecordEnvelope(message.content)
             const text = roleWrapped?.role === 'user'
                 ? extractUserMessageText(roleWrapped.content)
@@ -852,19 +855,19 @@ export class SyncEngine {
     }
 
     /** Inactive session with directory path but no agent thread and no prior user turn. */
-    private canFreshSpawnNeverStartedSession(session: Session, sessionId: string, namespace: string): boolean {
+    private async canFreshSpawnNeverStartedSession(session: Session, sessionId: string, namespace: string): Promise<boolean> {
         const metadata = session.metadata
         if (!metadata || typeof metadata.path !== 'string' || metadata.path.length === 0) {
             return false
         }
-        if (this.resolveAgentResumeId(session, namespace)) {
+        if (await this.resolveAgentResumeId(session, namespace)) {
             return false
         }
-        return this.store.messages.getFirstMessages(sessionId, 1).length === 0
+        return (await this.store.messages.getFirstMessages(sessionId, 1)).length === 0
     }
 
     async resumeSession(sessionId: string, namespace: string, opts?: { permissionMode?: PermissionMode }): Promise<ResumeSessionResult> {
-        const access = this.sessionCache.resolveSessionAccess(sessionId, namespace)
+        const access = await this.sessionCache.resolveSessionAccess(sessionId, namespace)
         if (!access.ok) {
             return {
                 type: 'error',
@@ -880,7 +883,7 @@ export class SyncEngine {
 
         const session = initialSession
 
-        const targetResult = this.resolveLocalResumeTarget(access.sessionId, namespace)
+        const targetResult = await this.resolveLocalResumeTarget(access.sessionId, namespace)
         let flavor: AgentFlavor
         let resumeToken: string | undefined
         let directory: string
@@ -891,7 +894,7 @@ export class SyncEngine {
             directory = targetResult.target.directory
         } else if (
             targetResult.code === 'resume_unavailable'
-            && this.canFreshSpawnNeverStartedSession(session, access.sessionId, namespace)
+            && await this.canFreshSpawnNeverStartedSession(session, access.sessionId, namespace)
         ) {
             const metadata = session.metadata!
             flavor = this.resolveFlavor(session)
@@ -1007,7 +1010,7 @@ export class SyncEngine {
      * needed to resume is missing.
      */
     async reopenSession(sessionId: string, namespace: string): Promise<ReopenSessionResult> {
-        const access = this.sessionCache.resolveSessionAccess(sessionId, namespace)
+        const access = await this.sessionCache.resolveSessionAccess(sessionId, namespace)
         if (!access.ok) {
             return {
                 type: 'error',
@@ -1027,7 +1030,7 @@ export class SyncEngine {
 
         if (isArchived && metadata) {
             if (metadata.flavor === 'cursor' && !metadata.cursorSessionId) {
-                const hasMessages = this.store.messages.getFirstMessages(access.sessionId, 1).length > 0
+                const hasMessages = (await this.store.messages.getFirstMessages(access.sessionId, 1)).length > 0
                 if (hasMessages) {
                     return {
                         type: 'incomplete',
@@ -1086,7 +1089,7 @@ export class SyncEngine {
     }
 
     async handoffSessionToLocal(sessionId: string, namespace: string): Promise<LocalHandoffResult> {
-        const access = this.sessionCache.resolveSessionAccess(sessionId, namespace)
+        const access = await this.sessionCache.resolveSessionAccess(sessionId, namespace)
         if (!access.ok) {
             return {
                 type: 'error',
@@ -1129,13 +1132,13 @@ export class SyncEngine {
         return { type: 'success' }
     }
 
-    private recoverClaudeSessionIdFromMessages(sessionId: string, namespace: string): string | null {
-        const messages = this.messageService.getMessages(sessionId, 200)
+    private async recoverClaudeSessionIdFromMessages(sessionId: string, namespace: string): Promise<string | null> {
+        const messages = await this.messageService.getMessages(sessionId, 200)
         for (let i = messages.length - 1; i >= 0; i -= 1) {
             const found = this.extractClaudeSessionId(messages[i].content)
             if (!found) continue
 
-            this.persistRecoveredClaudeSessionId(sessionId, namespace, found)
+            await this.persistRecoveredClaudeSessionId(sessionId, namespace, found)
             return found
         }
         return null
@@ -1177,14 +1180,14 @@ export class SyncEngine {
             : null
     }
 
-    private persistRecoveredClaudeSessionId(sessionId: string, namespace: string, claudeSessionId: string): void {
+    private async persistRecoveredClaudeSessionId(sessionId: string, namespace: string, claudeSessionId: string): Promise<void> {
         for (let attempt = 0; attempt < 2; attempt += 1) {
             const latest = this.sessionCache.getSessionByNamespace(sessionId, namespace)
-                ?? this.sessionCache.refreshSession(sessionId)
+                ?? await this.sessionCache.refreshSession(sessionId)
             if (!latest?.metadata) return
             if (latest.metadata.claudeSessionId === claudeSessionId) return
 
-            const result = this.store.sessions.updateSessionMetadata(
+            const result = await this.store.sessions.updateSessionMetadata(
                 sessionId,
                 { ...latest.metadata, claudeSessionId },
                 latest.metadataVersion,
@@ -1192,7 +1195,7 @@ export class SyncEngine {
                 { touchUpdatedAt: false }
             )
             if (result.result === 'success') {
-                this.sessionCache.refreshSession(sessionId)
+                await this.sessionCache.refreshSession(sessionId)
                 return
             }
             if (result.result !== 'version-mismatch') {
@@ -1239,7 +1242,7 @@ export class SyncEngine {
     async waitForSessionActive(sessionId: string, timeoutMs: number = 15_000): Promise<boolean> {
         const start = Date.now()
         while (Date.now() - start < timeoutMs) {
-            const session = this.getSession(sessionId)
+            const session = await this.getSession(sessionId)
             if (session?.active) {
                 return true
             }
@@ -1254,7 +1257,7 @@ export class SyncEngine {
             if (this.sessionReadyIds.has(sessionId)) {
                 return 'ready'
             }
-            const session = this.getSession(sessionId)
+            const session = await this.getSession(sessionId)
             if (!session?.active) {
                 return 'ended'
             }
@@ -1266,7 +1269,7 @@ export class SyncEngine {
     async waitForSessionInactive(sessionId: string, timeoutMs: number = 15_000): Promise<boolean> {
         const start = Date.now()
         while (Date.now() - start < timeoutMs) {
-            const session = this.getSession(sessionId)
+            const session = await this.getSession(sessionId)
             if (!session?.active) {
                 return true
             }

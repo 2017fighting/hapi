@@ -151,7 +151,7 @@ export interface CursorLegacyMigratorDeps {
     /** Logger sink. Default: silent. */
     logger?: { debug: (msg: string, ctx?: unknown) => void; info: (msg: string, ctx?: unknown) => void; warn: (msg: string, ctx?: unknown) => void; error: (msg: string, ctx?: unknown) => void }
     /** Used to update hapi.db sessions.metadata.cursorSessionProtocol = 'acp' and session.model. */
-    updateSessionAfterMigrate?: (sessionId: string, namespace: string, lastUsedModel: string | null) => UpdateAfterMigrateResult
+    updateSessionAfterMigrate?: (sessionId: string, namespace: string, lastUsedModel: string | null) => Promise<UpdateAfterMigrateResult> | UpdateAfterMigrateResult
     /**
      * Best-effort count of messages HAPI has already synced for this session
      * (read from hapi.db, see hub/src/store/messages.ts). Used to refuse a
@@ -165,7 +165,7 @@ export interface CursorLegacyMigratorDeps {
      * Hub injects an implementation that calls
      * `store.messages.countMessages(sessionId)`. tiann/hapi#872.
      */
-    getHapiMessageCount?: (sessionId: string, namespace: string) => number
+    getHapiMessageCount?: (sessionId: string, namespace: string) => Promise<number> | number
 }
 
 export type UpdateAfterMigrateResult =
@@ -690,7 +690,7 @@ export class CursorLegacyMigrator {
         // alien snapshot over the live ACP target. Skips entirely when
         // HAPI message count is 0 (brand-new / never-synced session).
         // tiann/hapi#872.
-        const sizeMismatch = this.checkSizeSanity(session, cursorSessionId, legacy.storeDbPath, log)
+        const sizeMismatch = await this.checkSizeSanity(session, cursorSessionId, legacy.storeDbPath, log)
         if (sizeMismatch) {
             log.warn('[migrator] size sanity check refused transplant', {
                 sessionId: session.id,
@@ -974,7 +974,7 @@ export class CursorLegacyMigrator {
             tryRm(acpSessionDir)
             return refusal(session.id, 'internal_error', 'updateSessionAfterMigrate dependency not configured', start, this.deps.now)
         }
-        const updateResult = this.deps.updateSessionAfterMigrate(session.id, session.namespace, lastUsedModel)
+        const updateResult = await this.deps.updateSessionAfterMigrate(session.id, session.namespace, lastUsedModel)
         if (!updateResult.ok) {
             tryRm(acpSessionDir)
             // Distinguish the atomic active-check failure from the
@@ -1057,16 +1057,16 @@ export class CursorLegacyMigrator {
      * Thresholds are conservative sanity floors, not exact guarantees:
      * messageCount > 100 AND blobCount < messageCount / 4. tiann/hapi#872.
      */
-    private checkSizeSanity(
+    private async checkSizeSanity(
         session: Session,
         cursorSessionId: string,
         legacyStoreDbPath: string,
         log: NonNullable<CursorLegacyMigratorDeps['logger']>
-    ): { message: string; context: Record<string, unknown> } | null {
+    ): Promise<{ message: string; context: Record<string, unknown> } | null> {
         if (!this.deps.getHapiMessageCount) return null
         let messageCount: number
         try {
-            messageCount = this.deps.getHapiMessageCount(session.id, session.namespace)
+            messageCount = await this.deps.getHapiMessageCount(session.id, session.namespace)
         } catch (err) {
             log.warn('[migrator] getHapiMessageCount threw; skipping size sanity', {
                 sessionId: session.id,

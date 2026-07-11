@@ -7,12 +7,10 @@ import { SyncEngine } from './syncEngine'
 const TEST_URL = process.env.TEST_DATABASE_URL
 const itPg = TEST_URL ? it : it.skip
 
-// SyncEngine.handleSessionAlive / applySessionConfig dispatch async persistence
-// (persistPreferredPermissionMode) without the engine method itself being
-// async-declared; the work runs fire-and-forget.  Flushing pending microtasks
-// and a short timer turn lets those writes land in the DB before the engine is
-// snapshotted for the "hub restart" simulation.  (P3-4c will make these methods
-// genuinely awaitable and this flush can drop.)
+// SyncEngine.reloadAll() is async and invoked fire-and-forget from the
+// constructor; flushing pending microtasks and a short timer turn lets the
+// in-memory cache populate before createEngine returns. (handleSessionAlive /
+// applySessionConfig are now properly awaited so no flush is needed after them.)
 async function flushAsync(): Promise<void> {
     for (let i = 0; i < 4; i += 1) {
         await new Promise((resolve) => setTimeout(resolve, 10))
@@ -55,7 +53,6 @@ describe('permission mode persistence', () => {
             permissionMode: 'bypassPermissions'
         })
 
-        await flushAsync()
         const reloadedEngine = await simulateHubRestart(store)
         const reloadedSession = await reloadedEngine.getSession(session.id)
 
@@ -76,7 +73,6 @@ describe('permission mode persistence', () => {
 
         await engine.applySessionConfig(session.id, { permissionMode: 'yolo' })
 
-        await flushAsync()
         const reloadedEngine = await simulateHubRestart(store)
         const reloadedSession = await reloadedEngine.getSession(session.id)
 
@@ -101,7 +97,6 @@ describe('permission mode persistence', () => {
             permissionMode: 'bypassPermissions'
         })
 
-        await flushAsync()
         const reloadedEngine = await simulateHubRestart(store)
         const reloadedSession = await reloadedEngine.getSession(session.id)
 
@@ -109,11 +104,7 @@ describe('permission mode persistence', () => {
         expect(reloadedSession?.permissionMode).toBe('bypassPermissions')
     })
 
-    // Quarantined: `resumeSession` depends on `syncEngine.resolveSessionAccess`
-    // being awaited inside the async `resumeSession` body, but that one-line fix
-    // lives in syncEngine.ts which is P3-4c territory.  Move this test back to
-    // `itPg` once P3-4c makes the engine's async propagation whole.
-    itPg.skip('passes persisted permission mode when resuming after hub restart', async () => {
+    itPg('passes persisted permission mode when resuming after hub restart', async () => {
         const store = await createTestStore()
         const engine = await createEngine(store)
 
@@ -145,7 +136,6 @@ describe('permission mode persistence', () => {
         })
         await engine.handleSessionEnd({ sid: session.id, time: Date.now() })
 
-        await flushAsync()
         const restartedEngine = await simulateHubRestart(store)
         await restartedEngine.handleMachineAlive({ machineId: machine.id, time: Date.now() })
 
