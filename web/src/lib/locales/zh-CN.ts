@@ -200,6 +200,12 @@ export default {
   'session.export.toast.success.body': '已下载 {filename}',
   'session.export.toast.error.title': '导出失败',
 
+  // Mermaid diagrams
+  'mermaid.openFullscreen': '全屏查看图表',
+  'mermaid.viewerTitle': '图表',
+  'mermaid.loading': '正在加载图表…',
+  'mermaid.renderError': '无法渲染图表。',
+
   // Common buttons
   'button.cancel': '取消',
   'button.save': '保存',
@@ -249,6 +255,27 @@ export default {
 
   // Machine
   'machine.unknown': '未知平台',
+  'machine.os.windows': 'Windows',
+  'machine.os.linux': 'Linux',
+  'machine.os.macos': 'macOS',
+  'machine.os.unknown': '未知系统',
+  'machine.header.sessionCount': '{n} 个会话',
+  'machine.health.tooltip.title': '机器负载',
+  'machine.health.status.healthy': '健康 — 还可运行更多代理',
+  'machine.health.status.elevated': '偏高 — 新代理可能变慢',
+  'machine.health.status.high': '高压 — 避免在此继续启动',
+  'machine.health.status.unknown': '指标不可用',
+  'machine.health.metric.cpu': '全部核心的 CPU',
+  'machine.health.metric.cpuWithCount': '全部 {n} 个核心的 CPU',
+  'machine.health.metric.ram': '内存占用',
+  'machine.health.tooltip.load': '运行队列 (1 分钟): {value}',
+  'machine.health.tooltip.loadShort': '负载 (1 分钟)',
+  'machine.health.tooltip.uptimeShort': '运行时间',
+  'machine.health.uptimeCompact': '已运行 {value}',
+  'machine.health.tooltip.hint': '约每 20 秒由该机器上的 runner 更新。',
+  'machine.health.aria.cpu': 'CPU {n}%',
+  'machine.health.aria.ram': '内存 {n}%',
+  'machine.health.aria.unknown': '机器健康数据不可用',
 
   // Chat
   'chat.placeholder': '输入消息…',
@@ -319,6 +346,8 @@ export default {
   'file.page.download': '下载文件',
   'file.page.tab.diff': 'Diff',
   'file.page.tab.file': '文件',
+  'file.page.tab.source': '源码',
+  'file.page.tab.preview': '预览',
   'file.page.missingPath': '未提供文件路径。',
   'file.page.binary': '该文件看起来是二进制文件，无法显示。',
   'file.page.imagePreviewAlt': '{name} 图片预览',

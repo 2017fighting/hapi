@@ -196,6 +196,12 @@ export default {
   'session.export.toast.success.body': 'Downloaded {filename}',
   'session.export.toast.error.title': 'Export failed',
 
+  // Mermaid diagrams
+  'mermaid.openFullscreen': 'Open diagram full screen',
+  'mermaid.viewerTitle': 'Diagram',
+  'mermaid.loading': 'Loading diagram…',
+  'mermaid.renderError': 'Could not render diagram.',
+
   // Common buttons
   'button.cancel': 'Cancel',
   'button.save': 'Save',
@@ -245,6 +251,27 @@ export default {
 
   // Machine
   'machine.unknown': 'Unknown platform',
+  'machine.os.windows': 'Windows',
+  'machine.os.linux': 'Linux',
+  'machine.os.macos': 'macOS',
+  'machine.os.unknown': 'Unknown OS',
+  'machine.header.sessionCount': '{n} sessions',
+  'machine.health.tooltip.title': 'Machine capacity',
+  'machine.health.status.healthy': 'Healthy — room for more agents',
+  'machine.health.status.elevated': 'Elevated — new agents may run slower',
+  'machine.health.status.high': 'High pressure — avoid spawning more here',
+  'machine.health.status.unknown': 'Metrics unavailable',
+  'machine.health.metric.cpu': 'CPU across all cores',
+  'machine.health.metric.cpuWithCount': 'CPU across all {n} cores',
+  'machine.health.metric.ram': 'RAM in use',
+  'machine.health.tooltip.load': 'Run queue (1 min): {value}',
+  'machine.health.tooltip.loadShort': 'Load (1m)',
+  'machine.health.tooltip.uptimeShort': 'Uptime',
+  'machine.health.uptimeCompact': 'up {value}',
+  'machine.health.tooltip.hint': 'Updated every ~20s from the runner on this machine.',
+  'machine.health.aria.cpu': 'CPU {n} percent',
+  'machine.health.aria.ram': 'RAM {n} percent',
+  'machine.health.aria.unknown': 'Machine health unavailable',
 
   // Chat
   'chat.placeholder': 'Type a message…',
@@ -315,6 +342,8 @@ export default {
   'file.page.download': 'Download file',
   'file.page.tab.diff': 'Diff',
   'file.page.tab.file': 'File',
+  'file.page.tab.source': 'Source',
+  'file.page.tab.preview': 'Preview',
   'file.page.missingPath': 'No file path provided.',
   'file.page.binary': 'This looks like a binary file. It cannot be displayed.',
   'file.page.imagePreviewAlt': 'Image preview for {name}',

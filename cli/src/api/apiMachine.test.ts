@@ -18,7 +18,7 @@ vi.mock('../modules/common/opencodeModels', () => ({
     listOpencodeModelsForCwd: listOpencodeModelsForCwdMock
 }))
 
-import { ApiMachineClient } from './apiMachine'
+import { ApiMachineClient, normalizeWindowsDriveRoot } from './apiMachine'
 import type { Machine } from './types'
 
 function makeMachine(id: string): Machine {
@@ -36,6 +36,18 @@ function makeMachine(id: string): Machine {
         runnerStateVersion: 0
     }
 }
+
+describe('normalizeWindowsDriveRoot', () => {
+    it('restores the trailing separator when Windows realpath returns a bare drive', () => {
+        expect(normalizeWindowsDriveRoot('C:')).toBe('C:\\')
+        expect(normalizeWindowsDriveRoot('D:')).toBe('D:\\')
+    })
+
+    it('leaves non-drive-root paths unchanged', () => {
+        expect(normalizeWindowsDriveRoot('C:\\Users')).toBe('C:\\Users')
+        expect(normalizeWindowsDriveRoot('/tmp/workspace')).toBe('/tmp/workspace')
+    })
+})
 
 async function callListOpencodeModels(client: ApiMachineClient, machineId: string, cwd: string): Promise<unknown> {
     // Reach into the private rpc handler manager to dispatch a request.
@@ -137,10 +149,69 @@ describe('ApiMachineClient listOpencodeModelsForCwd handler', () => {
             })
             // The handler realpaths the cwd (security: prevents symlink escape),
             // so on macOS /var/folders/... resolves to /private/var/folders/...
-            expect(listOpencodeModelsForCwdMock).toHaveBeenCalledWith(realpathSync(secondWorkspaceRoot))
+            expect(listOpencodeModelsForCwdMock).toHaveBeenCalledWith(realpathSync.native(secondWorkspaceRoot))
         } finally {
             rmSync(secondWorkspaceRoot, { recursive: true, force: true })
             client.shutdown()
         }
+    })
+})
+
+describe('ApiMachineClient keepAlive lifecycle', () => {
+    beforeEach(() => {
+        vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
+    it('clears priming timeout on shutdown before first machine-alive emit', () => {
+        const machine = makeMachine('machine-keepalive')
+        const client = new ApiMachineClient('cli-token', machine)
+        const emit = vi.fn()
+        ;(client as unknown as { socket: { emit: typeof emit; close: () => void } }).socket = {
+            emit,
+            close: vi.fn(),
+        } as never
+
+        const priv = client as unknown as {
+            startKeepAlive: () => void
+            keepAliveInterval: NodeJS.Timeout | null
+            keepAliveStartTimeout: ReturnType<typeof setTimeout> | null
+        }
+
+        priv.startKeepAlive()
+        client.shutdown()
+        vi.advanceTimersByTime(100)
+
+        expect(emit).not.toHaveBeenCalled()
+        expect(priv.keepAliveInterval).toBeNull()
+        expect(priv.keepAliveStartTimeout).toBeNull()
+    })
+
+    it('clears running keepAlive interval on shutdown', () => {
+        const machine = makeMachine('machine-keepalive-2')
+        const client = new ApiMachineClient('cli-token', machine)
+        const emit = vi.fn()
+        ;(client as unknown as { socket: { emit: typeof emit; close: () => void } }).socket = {
+            emit,
+            close: vi.fn(),
+        } as never
+
+        const priv = client as unknown as {
+            startKeepAlive: () => void
+            keepAliveInterval: NodeJS.Timeout | null
+        }
+
+        priv.startKeepAlive()
+        vi.advanceTimersByTime(50)
+        expect(emit).toHaveBeenCalledTimes(1)
+
+        client.shutdown()
+        vi.advanceTimersByTime(20_000)
+
+        expect(emit).toHaveBeenCalledTimes(1)
+        expect(priv.keepAliveInterval).toBeNull()
     })
 })

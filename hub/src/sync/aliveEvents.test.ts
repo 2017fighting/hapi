@@ -67,6 +67,55 @@ describe('alive incremental events', () => {
         expect(update.data).toEqual(expect.objectContaining({ id: machine.id, active: true }))
     })
 
+    itPg('stores health from machine alive and rebroadcasts when it changes', async () => {
+        const store = await createTestStore()
+        const events: SyncEvent[] = []
+        const cache = new MachineCache(store, createPublisher(events))
+
+        const machine = await cache.getOrCreateMachine(
+            'machine-health-test',
+            { host: 'localhost', platform: 'linux', happyCliVersion: '0.1.0' },
+            null,
+            'default'
+        )
+
+        events.length = 0
+        await cache.handleMachineAlive({
+            machineId: machine.id,
+            time: Date.now(),
+            health: {
+                collectedAt: Date.now(),
+                load1m: 0.4,
+                cpuCount: 8,
+                memoryPercent: 55
+            }
+        })
+
+        const updated = cache.getMachine(machine.id)
+        expect(updated?.health).toEqual(expect.objectContaining({ load1m: 0.4, cpuCount: 8 }))
+
+        events.length = 0
+        await cache.handleMachineAlive({
+            machineId: machine.id,
+            time: Date.now() + 1,
+            health: {
+                collectedAt: Date.now() + 1,
+                load1m: 2.1,
+                cpuCount: 8,
+                memoryPercent: 80
+            }
+        })
+
+        const healthUpdate = events.find((event) => event.type === 'machine-updated')
+        expect(healthUpdate).toBeDefined()
+        if (!healthUpdate || healthUpdate.type !== 'machine-updated' || !healthUpdate.data || typeof healthUpdate.data !== 'object') {
+            return
+        }
+        expect(healthUpdate.data).toEqual(expect.objectContaining({
+            health: expect.objectContaining({ load1m: 2.1, memoryPercent: 80 })
+        }))
+    })
+
     itPg('marks session thinking immediately when a user message is accepted by the hub', async () => {
         const store = await createTestStore()
         const emittedSocketUpdates: unknown[] = []

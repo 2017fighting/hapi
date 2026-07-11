@@ -353,7 +353,7 @@ export class SyncEngine {
         await this.sessionCache.recordSessionActivity(sessionId, updatedAt)
     }
 
-    async handleMachineAlive(payload: { machineId: string; time: number }): Promise<void> {
+    async handleMachineAlive(payload: { machineId: string; time: number; health?: unknown }): Promise<void> {
         await this.machineCache.handleMachineAlive(payload)
     }
 

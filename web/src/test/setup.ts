@@ -1,12 +1,13 @@
 import '@testing-library/jest-dom/vitest'
 import { afterEach } from 'vitest'
-import { act } from '@testing-library/react'
+import { act, cleanup } from '@testing-library/react'
 
 // Drain pending React scheduler work after each test. Some hooks (e.g.
 // useThemeColors) schedule state updates from async DOM events (MutationObserver
 // / storage); without a flush, react-dom's performWorkUntilDeadline can fire
 // after jsdom teardown and throw "window is not defined".
 afterEach(async () => {
+    cleanup()
     await act(async () => {})
 })
 
