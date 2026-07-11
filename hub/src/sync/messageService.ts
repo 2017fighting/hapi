@@ -14,8 +14,9 @@ import type { Server } from 'socket.io'
 import { randomUUID } from 'node:crypto'
 import type { Store, CancelQueuedMessageResult } from '../store'
 import { EventPublisher } from './eventPublisher'
+import type { StoredMessage } from '../store/types'
 
-type StoredMessageForDelivery = ReturnType<Store['messages']['getMessages']>[number]
+type StoredMessageForDelivery = StoredMessage
 
 function isWebVisibleStoredMessage(message: StoredMessageForDelivery): boolean {
     return !isRedundantGoalStatusEventContent(message.content)
@@ -86,17 +87,17 @@ export class MessageService {
         }
     }
 
-    getMessages(sessionId: string, limit: number = 200): DecryptedMessage[] {
-        const stored = this.store.messages.getMessages(sessionId, limit)
+    async getMessages(sessionId: string, limit: number = 200): Promise<DecryptedMessage[]> {
+        const stored = await this.store.messages.getMessages(sessionId, limit)
         return toVisibleDecryptedMessages(stored)
     }
 
-    getSessionExport(
+    async getSessionExport(
         sessionId: string,
         session: Session,
         limit: number = SESSION_EXPORT_MESSAGE_LIMIT
-    ): HapiSessionExportResult {
-        const messages = this.store.messages.getAllMessages(sessionId)
+    ): Promise<HapiSessionExportResult> {
+        const messages = (await this.store.messages.getAllMessages(sessionId))
             .filter(isExportVisibleStoredMessage)
             .sort((a, b) => {
                 const aAt = a.invokedAt ?? a.createdAt
@@ -124,10 +125,10 @@ export class MessageService {
         }
     }
 
-    getMessagesPage(
+    async getMessagesPage(
         sessionId: string,
         options: { limit: number; before?: { at: number; seq: number } | null }
-    ): {
+    ): Promise<{
         messages: DecryptedMessage[]
         page: {
             limit: number
@@ -135,9 +136,9 @@ export class MessageService {
             nextBeforeAt: number | null
             hasMore: boolean
         }
-    } {
+    }> {
         let before = options.before ?? undefined
-        let pageRows = this.store.messages.getMessagesByPosition(sessionId, options.limit, before)
+        let pageRows = await this.store.messages.getMessagesByPosition(sessionId, options.limit, before)
 
         // Latest-page request (no cursor): also include uninvoked local user messages
         // out-of-band, so refresh / secondary clients can still see queued rows even
@@ -145,10 +146,10 @@ export class MessageService {
         // The cursor stays anchored to pageRows so out-of-band rows don't affect
         // pagination of older pages.
         let queuedRows = before === undefined
-            ? this.store.messages.getUninvokedLocalMessages(sessionId)
+            ? await this.store.messages.getUninvokedLocalMessages(sessionId)
             : []
 
-        let byId = new Map<string, typeof pageRows[number]>()
+        let byId = new Map<string, StoredMessageForDelivery>()
         for (const row of pageRows) byId.set(row.id, row)
         for (const row of queuedRows) byId.set(row.id, row)
 
@@ -169,18 +170,18 @@ export class MessageService {
             : null
 
         let hasMore = oldestSeq !== null && oldestPositionAt !== null
-            && this.store.messages.getMessagesByPosition(
+            && (await this.store.messages.getMessagesByPosition(
                 sessionId,
                 1,
                 { at: oldestPositionAt, seq: oldestSeq }
-            ).length > 0
+            )).length > 0
 
         while (messages.length === 0 && hasMore && oldestSeq !== null && oldestPositionAt !== null) {
             before = { at: oldestPositionAt, seq: oldestSeq }
-            pageRows = this.store.messages.getMessagesByPosition(sessionId, options.limit, before)
+            pageRows = await this.store.messages.getMessagesByPosition(sessionId, options.limit, before)
             queuedRows = []
 
-            byId = new Map<string, typeof pageRows[number]>()
+            byId = new Map<string, StoredMessageForDelivery>()
             for (const row of pageRows) byId.set(row.id, row)
             for (const row of queuedRows) byId.set(row.id, row)
 
@@ -196,11 +197,11 @@ export class MessageService {
                 ? oldest.invokedAt ?? oldest.createdAt
                 : null
             hasMore = oldestSeq !== null && oldestPositionAt !== null
-                && this.store.messages.getMessagesByPosition(
+                && (await this.store.messages.getMessagesByPosition(
                     sessionId,
                     1,
                     { at: oldestPositionAt, seq: oldestSeq }
-                ).length > 0
+                )).length > 0
         }
 
         return {
@@ -216,8 +217,8 @@ export class MessageService {
 
     /** CLI reconnect backfill — excludes future-scheduled rows so the runner does
      *  not consume them ahead of their scheduled_at.  See messages.ts:getDeliverableMessagesAfter. */
-    getDeliverableMessagesAfter(sessionId: string, options: { afterSeq: number; limit: number; now: number }): DecryptedMessage[] {
-        const stored = this.store.messages.getDeliverableMessagesAfter(
+    async getDeliverableMessagesAfter(sessionId: string, options: { afterSeq: number; limit: number; now: number }): Promise<DecryptedMessage[]> {
+        const stored = await this.store.messages.getDeliverableMessagesAfter(
             sessionId,
             options.afterSeq,
             options.now,
@@ -240,7 +241,7 @@ export class MessageService {
     ): Promise<CancelQueuedMessageResult> {
         // Phase 1: look up the row WITHOUT deleting it.
         // This lets us ask the CLI first and only DELETE if the CLI confirms removal.
-        const lookup = this.store.messages.lookupQueuedMessage(sessionId, messageId)
+        const lookup = await this.store.messages.lookupQueuedMessage(sessionId, messageId)
 
         if (lookup.status === 'absent') {
             // Row not found — already cancelled or wrong id.
@@ -260,7 +261,7 @@ export class MessageService {
 
         if (!localId) {
             // No localId — row exists but has no cancel path; treat as cancelled.
-            this.store.messages.deleteQueuedMessageById(sessionId, resolvedId)
+            await this.store.messages.deleteQueuedMessageById(sessionId, resolvedId)
             this.publisher.emit({ type: 'message-cancelled', sessionId, messageId })
             return { status: 'cancelled', localId: null }
         }
@@ -278,7 +279,7 @@ export class MessageService {
         // markInvoked between the lookup and the delete.
         const now = Date.now()
         if (scheduledAt !== null && scheduledAt > now) {
-            this.store.messages.deleteQueuedMessageById(sessionId, resolvedId)
+            await this.store.messages.deleteQueuedMessageById(sessionId, resolvedId)
             this.forgetScheduledMatureNotified([localId])
             this.publisher.emit({
                 type: 'message-cancelled',
@@ -302,10 +303,10 @@ export class MessageService {
         const roomName = `session:${sessionId}`
         const cliCount = this.io.of('/cli').adapter.rooms.get(roomName)?.size ?? 0
         if (cliCount === 0) {
-            this.store.messages.deleteQueuedMessageById(sessionId, resolvedId)
+            await this.store.messages.deleteQueuedMessageById(sessionId, resolvedId)
             // Re-check: if CLI joined and invoked the message between our cliCount read
             // and the DELETE, the delete was a no-op and the row now has invoked_at set.
-            const recheck = this.store.messages.lookupQueuedMessage(sessionId, resolvedId)
+            const recheck = await this.store.messages.lookupQueuedMessage(sessionId, resolvedId)
             if (recheck.status === 'invoked') {
                 // CLI beat us — treat identically to Race-B (ack returned not-found).
                 this.forgetScheduledMatureNotified([localId])
@@ -337,7 +338,7 @@ export class MessageService {
             // (if it produced one) joins the same thread normally.
             const invokedAt = Date.now()
             try {
-                this.store.messages.markMessagesInvoked(sessionId, [localId], invokedAt)
+                await this.store.messages.markMessagesInvoked(sessionId, [localId], invokedAt)
             } catch (err) {
                 console.error('cancelQueuedMessage: markMessagesInvoked failed', err)
                 // DB write failed — let the HTTP 500 surface to the caller.
@@ -359,7 +360,7 @@ export class MessageService {
             // Re-fetch the single row via lookupQueuedMessage to avoid the 200-row
             // pagination cap of getMessages.  After markMessagesInvoked the row will
             // have invoked_at set, so lookupQueuedMessage returns status='invoked'.
-            const recheck = this.store.messages.lookupQueuedMessage(sessionId, localId)
+            const recheck = await this.store.messages.lookupQueuedMessage(sessionId, localId)
             if (recheck.status === 'invoked') {
                 return recheck
             }
@@ -368,7 +369,7 @@ export class MessageService {
         }
 
         // Phase 3: CLI confirmed removal.  Now DELETE the DB row and broadcast SSE.
-        this.store.messages.deleteQueuedMessageById(sessionId, resolvedId)
+        await this.store.messages.deleteQueuedMessageById(sessionId, resolvedId)
         this.forgetScheduledMatureNotified([localId])
         this.publisher.emit({
             type: 'message-cancelled',
@@ -466,7 +467,7 @@ export class MessageService {
             }
         }
 
-        const msg = this.store.messages.addMessage(
+        const msg = await this.store.messages.addMessage(
             sessionId,
             content,
             payload.localId ?? undefined,
@@ -533,16 +534,16 @@ export class MessageService {
      * Returns the list of localIds that were stamped and the invokedAt timestamp,
      * or null if no messages needed sweeping.
      */
-    sweepImmediateQueuedOnSessionEnd(
+    async sweepImmediateQueuedOnSessionEnd(
         sessionId: string,
         invokedAt: number
-    ): { localIds: string[]; invokedAt: number } | null {
-        const queued = this.store.messages.getImmediateQueuedLocalMessages(sessionId)
+    ): Promise<{ localIds: string[]; invokedAt: number } | null> {
+        const queued = await this.store.messages.getImmediateQueuedLocalMessages(sessionId)
         const localIds = queued
             .map((m) => m.localId)
             .filter((id): id is string => typeof id === 'string')
         if (localIds.length === 0) return null
-        this.store.messages.markMessagesInvoked(sessionId, localIds, invokedAt)
+        await this.store.messages.markMessagesInvoked(sessionId, localIds, invokedAt)
         this.forgetScheduledMatureNotified(localIds)
         this.publisher.emit({ type: 'messages-consumed', sessionId, localIds, invokedAt })
         return { localIds, invokedAt }
@@ -563,8 +564,8 @@ export class MessageService {
      * preserved).  Web client surfaces this as 'sent' in the thread.
      * See messageService.test.ts "cancel × mature race" for the documented
      * expected behaviour. */
-    releaseMatureScheduledMessages(now: number): void {
-        const mature = this.store.messages.getMatureScheduledMessages(now)
+    async releaseMatureScheduledMessages(now: number): Promise<void> {
+        const mature = await this.store.messages.getMatureScheduledMessages(now)
         const maturedSessionIds = new Set<string>()
         for (const msg of mature) {
             const localId = msg.localId

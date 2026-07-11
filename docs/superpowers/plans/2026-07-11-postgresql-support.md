@@ -15,7 +15,7 @@ Copied verbatim from the spec (`docs/superpowers/specs/2026-07-11-postgresql-sup
 - **Backend**: PostgreSQL only in `hub` runtime; `bun:sqlite` removed from hub runtime, kept solely as the migration script's read-side.
 - **Driver**: `postgres` (porsager), raw SQL via tagged templates. No ORM / query builder.
 - **`DATABASE_URL`** is **required** (fail-fast if absent). Optional env: `DATABASE_SSL` (`require`|`prefer`|`disable`; default `require` for non-localhost), `DATABASE_MAX_CONNECTIONS` (default 10).
-- **BIGINT**: every SQLite `INTEGER` column holding epoch-ms timestamps, `seq`, `*_version`, or counts becomes Postgres **`BIGINT`** (32-bit `INTEGER` overflows in 2038). Configure `types: { bigint: postgres.toNumber }` globally so reads return JS `number`, not string.
+- **BIGINT**: every SQLite `INTEGER` column holding epoch-ms timestamps, `seq`, `*_version`, or counts becomes Postgres **`BIGINT`** (32-bit `INTEGER` overflows in 2038). Configure the **`bigintToNumber`** `PostgresType` (exported from `pgIndex.ts`, targeting oid 20) via the driver `types` option so reads return JS `number`, not string. ⚠️ porsager 3.4.x has **no** `postgres.toNumber` (plan's earlier `types: { bigint: postgres.toNumber }` was a bug — discovered/fixed in Task 3). All connections (factory, `testStore`, migration script) must reuse this exported `bigintToNumber`.
 - **`active`** stays `INTEGER DEFAULT 0` (no BOOLEAN conversion). JSON columns stay `TEXT` (no JSONB).
 - **Migrations**: `schema_migrations(version INTEGER PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())` replaces `PRAGMA user_version`. Fresh PG DB starts at schema version **1** (final V10 shape); the SQLite V1→V10 ladder is NOT replayed.
 - **`cli`/`shared`/`web`** are untouched (only `hub` has a DB). `cli/src/opencode/utils/opencodeStorageScanner.ts` keeps reading OpenCode's own `opencode.db` read-only — do NOT touch it.
@@ -39,6 +39,7 @@ Copied verbatim from the spec (`docs/superpowers/specs/2026-07-11-postgresql-sup
 | R12 | dynamic table/column name (internal enum only) | validate against an allowlist, then `sql.unsafe('"'+id+'"')` — never interpolate user data |
 | R13 | `SELECT COUNT(*) AS count` → `{ count }` | works as-is once `bigint: toNumber` is set; cast `::int` for safety |
 | R14 | `coalesce(null, …)` insert of literal via `?? null` | unchanged; pass JS `null` and porsager sends `NULL` |
+| R15 | `SELECT … AS camelCase` alias (SQLite preserves case) | ⚠️ Postgres **lowercases unquoted identifiers**, so `AS nextSeq` is returned as key `nextseq`. Either use a lowercase alias (`AS next_seq` or `AS nextseq`) AND read it lowercase, OR quote the alias (`AS "nextSeq"`). Discovered in Task 8 (`addMessage`/`getMaxSeq` `nextSeq`/`maxSeq`). |
 
 **Correctness contract:** the existing `*.test.ts` files define behavior. For each P2 task, port the corresponding test file to `async` + `createTestStore()` FIRST (red), then port the implementation to pass (green). Do not invent new assertions.
 
@@ -367,7 +368,7 @@ git commit -m "feat(hub): PG Store.create factory + schema.sql + BIGINT→Number
 
 ```ts
 import postgres from 'postgres'
-import { Store, type Sql } from './pgIndex'
+import { Store, bigintToNumber, type Sql } from './pgIndex'
 
 const TEST_URL = process.env.TEST_DATABASE_URL
 
@@ -383,7 +384,7 @@ async function getSharedSql(): Promise<Sql> {
                 'and set TEST_DATABASE_URL, or skip PG tests.'
             )
         }
-        const sql = postgres(TEST_URL, { types: { bigint: postgres.toNumber } })
+        const sql = postgres(TEST_URL, { types: { bigint: bigintToNumber } })
         await Store.create(TEST_URL, { sql }) // ensures schema exists once
         _sharedSql = sql
     }
