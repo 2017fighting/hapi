@@ -9,7 +9,7 @@
  * - Orphaned: Delete sessions whose path no longer exists
  *
  * Usage:
- *   bun run hub/scripts/cleanup-sessions.ts [options]
+ *   DATABASE_URL=postgres://user:pass@host:5432/hapi bun run hub/scripts/cleanup-sessions.ts [options]
  *
  * Options:
  *   --min-messages=N   Delete sessions with fewer than N messages (default: 5)
@@ -28,10 +28,8 @@
  *   bun run hub/scripts/cleanup-sessions.ts --orphaned --min-messages=5 --force
  */
 
-import { Database } from 'bun:sqlite'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { existsSync } from 'node:fs'
+import { Store, type Sql } from '../src/store'
 
 // Format timestamp as human-readable date
 function formatDate(timestamp: number): string {
@@ -112,15 +110,15 @@ function parseArgs(): { minMessages: number | null; pathPattern: string | null; 
     return { minMessages, pathPattern, messagePattern, orphaned, force, help }
 }
 
-// Get database path (same logic as configuration.ts)
-function getDbPath(): string {
-    if (process.env.DB_PATH) {
-        return process.env.DB_PATH.replace(/^~/, homedir())
+// Require DATABASE_URL (same source as configuration.ts)
+function getDatabaseUrl(): string {
+    const url = process.env.DATABASE_URL
+    if (!url) {
+        console.error('Error: DATABASE_URL is required. Set it to a PostgreSQL connection string,')
+        console.error('e.g. postgres://user:pass@host:5432/hapi')
+        process.exit(1)
     }
-    const dataDir = process.env.HAPI_HOME
-        ? process.env.HAPI_HOME.replace(/^~/, homedir())
-        : join(homedir(), '.hapi')
-    return join(dataDir, 'hapi.db')
+    return url
 }
 
 // Session info for display
@@ -134,12 +132,9 @@ interface SessionInfo {
 }
 
 // Query sessions with message counts
-function querySessions(db: Database): SessionInfo[] {
+async function querySessions(sql: Sql): Promise<SessionInfo[]> {
     // Get basic session info
-    const sessionRows = db.query<
-        { id: string; metadata: string | null; updated_at: number; message_count: number },
-        []
-    >(`
+    const sessionRows = await sql<{ id: string; metadata: string | null; updated_at: number; message_count: number }[]>`
         SELECT
             s.id,
             s.metadata,
@@ -148,17 +143,14 @@ function querySessions(db: Database): SessionInfo[] {
         FROM sessions s
         LEFT JOIN messages m ON m.session_id = s.id
         GROUP BY s.id
-    `).all()
+    `
 
     // Get all messages for processing
-    const messageRows = db.query<
-        { session_id: string; content: string; seq: number },
-        []
-    >(`
+    const messageRows = await sql<{ session_id: string; content: string; seq: number }[]>`
         SELECT session_id, content, seq
         FROM messages
         ORDER BY session_id, seq
-    `).all()
+    `
 
     // Group messages by session
     const messagesBySession = new Map<string, { content: string; seq: number }[]>()
@@ -307,12 +299,10 @@ async function confirm(message: string): Promise<boolean> {
     return false
 }
 
-// Delete sessions by IDs
-function deleteSessions(db: Database, ids: string[]): number {
+// Delete sessions by IDs (messages cascade via FK ON DELETE CASCADE)
+async function deleteSessions(sql: Sql, ids: string[]): Promise<number> {
     if (ids.length === 0) return 0
-
-    const placeholders = ids.map(() => '?').join(', ')
-    db.run(`DELETE FROM sessions WHERE id IN (${placeholders})`, ids)
+    await sql`DELETE FROM sessions WHERE id IN ${sql(ids)}`
     return ids.length
 }
 
@@ -322,7 +312,7 @@ async function main(): Promise<void> {
 
     if (help) {
         console.log(`
-Usage: bun run hub/scripts/cleanup-sessions.ts [options]
+Usage: DATABASE_URL=postgres://... bun run hub/scripts/cleanup-sessions.ts [options]
 
 Options:
   --min-messages=N   Delete sessions with fewer than N messages (default: 5)
@@ -350,22 +340,15 @@ Examples:
         process.exit(0)
     }
 
-    // Check database exists
-    const dbPath = getDbPath()
-    if (!existsSync(dbPath)) {
-        console.error(`Database not found: ${dbPath}`)
-        process.exit(1)
-    }
+    const databaseUrl = getDatabaseUrl()
+    console.log(`Database: ${databaseUrl}`)
 
-    console.log(`Database: ${dbPath}`)
-
-    // Open database
-    const db = new Database(dbPath)
-    db.run('PRAGMA foreign_keys = ON')
+    const store = await Store.create(databaseUrl)
+    const sql = store.sql
 
     try {
         // Query all sessions
-        const allSessions = querySessions(db)
+        const allSessions = await querySessions(sql)
         console.log(`Total sessions: ${allSessions.length}`)
 
         // Apply filters
@@ -407,11 +390,11 @@ Examples:
             }
         }
 
-        // Delete sessions
-        const deleted = deleteSessions(db, toDelete.map(s => s.id))
+        // Delete sessions (messages cascade)
+        const deleted = await deleteSessions(sql, toDelete.map(s => s.id))
         console.log(`Deleted ${deleted} session(s) and their messages.`)
     } finally {
-        db.close()
+        await store.close()
     }
 }
 

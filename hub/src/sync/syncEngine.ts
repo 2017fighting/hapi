@@ -4,7 +4,7 @@
  * In the direct-connect architecture:
  * - hapi-hub is the hub (Socket.IO + REST)
  * - hapi CLI connects directly to the hub (no relay)
- * - No E2E encryption; data is stored as JSON in SQLite
+ * - No E2E encryption; data is stored as JSON in PostgreSQL
  */
 
 import { isKnownFlavor, type LocalResumeTarget, type ResumableSession } from '@hapi/protocol'
@@ -16,7 +16,6 @@ import type { Store, CancelQueuedMessageResult } from '../store'
 import type { HapiSessionExportResult } from '@hapi/protocol/sessionExport'
 import type { RpcRegistry } from '../socket/rpcRegistry'
 import type { SSEManager } from '../sse/sseManager'
-import { CursorLegacyMigrator, type CursorLegacyMigratorOptions } from '../cursor/cursorLegacyMigrator'
 
 import { EventPublisher, type SyncEventListener } from './eventPublisher'
 import { MachineCache, type Machine } from './machineCache'
@@ -482,10 +481,6 @@ export class SyncEngine {
      * Returns 'success' on a clean write, 'version-mismatch' if the metadata
      * version moved underneath us (caller retries) or 'not-found' if the row
      * is gone.
-     *
-     * Used by CursorLegacyMigrator after the on-disk transplant + verify
-     * succeeds. Kept on the engine (not on the migrator) so that all hapi.db
-     * writes funnel through the existing cache-refresh path.
      */
     async flipCursorSessionProtocolToAcp(
         sessionId: string,
@@ -573,74 +568,24 @@ export class SyncEngine {
      * Migrate a single legacy cursor session to ACP. Hub-side; runs on the
      * operator's machine (the hub host); see tiann/hapi#824 design.
      * Returns a structured outcome (ok or refusal); does not throw.
+     *
+     * Legacy pre-V8 SQLite migration is obsolete on the PostgreSQL backend —
+     * there is no on-disk hapi.db to transplant. Existing users run the P5
+     * sqlite→postgres script instead. The endpoint is kept so the web client
+     * gets a clean 404 (`no_legacy_store_on_disk`) rather than a route 404.
      */
     async migrateLegacyCursorSession(
         sessionId: string,
-        namespace: string,
-        request: CursorMigrateToAcpRequest
+        _namespace: string,
+        _request: CursorMigrateToAcpRequest
     ): Promise<CursorMigrateOutcome> {
-        const session = this.sessionCache.getSessionByNamespace(sessionId, namespace)
-            ?? await this.sessionCache.refreshSession(sessionId)
-        if (!session) {
-            return { ok: false, sessionId, reason: 'internal_error', message: 'session not found in namespace', durationMs: 0 }
+        return {
+            ok: false,
+            sessionId,
+            reason: 'no_legacy_store_on_disk',
+            message: 'Legacy SQLite migration is not available on the PostgreSQL backend.',
+            durationMs: 0
         }
-        const migrator = this.buildMigratorForRequest(request)
-        return await migrator.migrateOne(session, {
-            keepSource: request.keepSource,
-            forceArchiveRunning: request.forceArchiveRunning,
-            skipVerify: request.skipVerify
-        })
-    }
-
-    private buildMigratorForRequest(_request: CursorMigrateToAcpRequest): CursorLegacyMigrator {
-        const migratorOpts: CursorLegacyMigratorOptions = {}
-        return new CursorLegacyMigrator(migratorOpts, {
-            archiveSession: async (sessionId) => {
-                await this.archiveSession(sessionId)
-            },
-            // NOTE: no awaitSessionInactive injection — handleSessionEnd()
-            // synchronously sets cache.active=false inside archiveSession,
-            // so any cache-based poll would return immediately and provide
-            // false reassurance. The migrator now relies on
-            // awaitLockRelease's minimum-dwell + SQLite busy-probe +
-            // size-stability combination instead. Codex review #34 P1 v3.
-            getCurrentSession: (sessionId, namespace) => {
-                const s = this.sessionCache.getSessionByNamespace(sessionId, namespace)
-                if (!s) return null
-                return {
-                    active: s.active === true,
-                    lifecycleState: typeof s.metadata?.lifecycleState === 'string' ? s.metadata.lifecycleState : undefined,
-                    cursorSessionProtocol: typeof s.metadata?.cursorSessionProtocol === 'string' ? s.metadata.cursorSessionProtocol : undefined
-                }
-            },
-            updateSessionAfterMigrate: async (sessionId, namespace, lastUsedModel) => {
-                const result = await this.flipCursorSessionProtocolToAcp(sessionId, namespace, lastUsedModel)
-                if (result.result === 'success') return { ok: true }
-                if (result.result === 'session-active') return { ok: false, reason: 'session_active' as const }
-                return { ok: false, reason: 'version_mismatch_or_missing' as const }
-            },
-            // tiann/hapi#872: size sanity check needs to compare HAPI's known
-            // message history against the candidate legacy store's blob
-            // count. The store-handle stays on the engine; we only thread
-            // the count through so the migrator stays free of a direct
-            // hub.Store dependency.
-            getHapiMessageCount: async (sessionId, _namespace) => {
-                try {
-                    return await this.store.messages.countMessages(sessionId)
-                } catch (err) {
-                    // tiann/hapi#873 cold review: a silent 0 here trips
-                    // the migrator's "skip sanity" branch and chronically
-                    // disables the floor. Warn so a broken countMessages
-                    // (lock contention pattern, schema drift) is visible
-                    // in journalctl.
-                    console.warn('[auto-migrate] countMessages threw; size sanity skipped', {
-                        sessionId,
-                        err: err instanceof Error ? err.message : String(err)
-                    })
-                    return 0
-                }
-            }
-        })
     }
 
     async switchSession(sessionId: string, to: 'remote' | 'local'): Promise<void> {
