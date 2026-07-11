@@ -1,4 +1,14 @@
 import '@testing-library/jest-dom/vitest'
+import { afterEach } from 'vitest'
+import { act } from '@testing-library/react'
+
+// Drain pending React scheduler work after each test. Some hooks (e.g.
+// useThemeColors) schedule state updates from async DOM events (MutationObserver
+// / storage); without a flush, react-dom's performWorkUntilDeadline can fire
+// after jsdom teardown and throw "window is not defined".
+afterEach(async () => {
+    await act(async () => {})
+})
 
 function installMemoryLocalStorage(): void {
     const store = new Map<string, string>()
