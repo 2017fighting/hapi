@@ -74,6 +74,10 @@ RUN mkdir -p /data && chown -R 1000:1000 /data
 # Ship only the built artifacts.
 COPY --from=build --chown=1000:1000 /app/hub/dist /app/hub/dist
 COPY --from=build --chown=1000:1000 /app/web/dist /app/web/dist
+# pgIndex.ts reads the PG schema next to the bundle
+# (resolve(__dirname, './schema.sql') → /app/hub/dist/schema.sql); bun build ships
+# JS only, so carry schema.sql into dist explicitly.
+COPY --from=build --chown=1000:1000 /app/hub/src/store/schema.sql /app/hub/dist/schema.sql
 
 USER bun
 WORKDIR /app/hub
