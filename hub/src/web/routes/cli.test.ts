@@ -17,6 +17,12 @@ function authHeaders() {
 }
 
 beforeAll(async () => {
+    // createConfiguration() requires DATABASE_URL (production fail-fast). This
+    // test only needs the Configuration singleton for the CLI token — it never
+    // opens a DB connection — so reuse the test DB URL (or a placeholder).
+    if (!process.env.DATABASE_URL) {
+        process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? 'postgres://localhost/hapi'
+    }
     const config = await createConfiguration()
     config._setCliApiToken('test-token', 'env', false)
 })

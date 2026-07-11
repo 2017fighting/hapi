@@ -20,7 +20,7 @@
  * - HAPI_RELAY_FORCE_TCP: Force TCP relay mode when UDP is unavailable (true/1)
  * - VAPID_SUBJECT: Contact email or URL for Web Push (defaults to mailto:admin@hapi.run)
  * - HAPI_HOME: Data directory (default: ~/.hapi)
- * - DB_PATH: SQLite database path (default: {HAPI_HOME}/hapi.db)
+ * - DATABASE_URL: PostgreSQL connection string (required, e.g. postgres://user:pass@host:5432/db)
  */
 
 import { existsSync, mkdirSync } from 'node:fs'
@@ -75,8 +75,8 @@ class Configuration {
     /** Data directory for credentials and state */
     public readonly dataDir: string
 
-    /** SQLite DB path */
-    public readonly dbPath: string
+    /** PostgreSQL connection string */
+    public readonly databaseUrl: string
 
     /** Port for the HTTP service */
     public readonly listenPort: number
@@ -96,12 +96,12 @@ class Configuration {
     /** Private constructor - use createConfiguration() instead */
     private constructor(
         dataDir: string,
-        dbPath: string,
+        databaseUrl: string,
         serverSettings: ServerSettings,
         sources: ServerSettingsResult['sources']
     ) {
         this.dataDir = dataDir
-        this.dbPath = dbPath
+        this.databaseUrl = databaseUrl
         this.settingsFile = getSettingsFile(dataDir)
 
         // Apply server settings
@@ -143,10 +143,14 @@ class Configuration {
             mkdirSync(dataDir, { recursive: true })
         }
 
-        // 2. Determine DB path (env only - not persisted)
-        const dbPath = process.env.DB_PATH
-            ? process.env.DB_PATH.replace(/^~/, homedir())
-            : join(dataDir, 'hapi.db')
+        // 2. Require DATABASE_URL (env only - not persisted)
+        const databaseUrl = process.env.DATABASE_URL
+        if (!databaseUrl) {
+            throw new Error(
+                'DATABASE_URL is required. Set it to a PostgreSQL connection string, ' +
+                'e.g. postgres://user:pass@host:5432/hapi'
+            )
+        }
 
         // 3. Load hub settings (with persistence)
         const settingsResult = await loadServerSettings(dataDir)
@@ -158,7 +162,7 @@ class Configuration {
         // 4. Create configuration instance
         const config = new Configuration(
             dataDir,
-            dbPath,
+            databaseUrl,
             settingsResult.settings,
             settingsResult.sources
         )
