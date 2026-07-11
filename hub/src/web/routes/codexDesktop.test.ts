@@ -5,10 +5,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Hono } from 'hono'
 import { AGENT_MESSAGE_PAYLOAD_TYPE } from '@hapi/protocol'
-import { Store } from '../../store'
+import { createTestStore } from '../../store/testStore'
+import type { Store } from '../../store'
 import type { Machine, SyncEngine } from '../../sync/syncEngine'
 import type { WebAppEnv } from '../middleware/auth'
 import { createCodexDesktopRoutes, importSelectedCodexSessions } from './codexDesktop'
+
+const TEST_URL = process.env.TEST_DATABASE_URL
+const itPg = TEST_URL ? it : it.skip
 
 const originalCodexHome = process.env.CODEX_HOME
 
@@ -72,32 +76,33 @@ function createImportSyncEngine(store: Store, machines: Machine[]): SyncEngine {
         getOnlineMachinesByNamespace: (namespace: string) => machines.filter((machine) => (
             machine.namespace === namespace && machine.active
         )),
-        getSessionsByNamespace: (namespace: string) => (
-            store.sessions.getSessionsByNamespace(namespace) as unknown as ReturnType<SyncEngine['getSessionsByNamespace']>
+        getSessionsByNamespace: async (namespace: string) => (
+            await store.sessions.getSessionsByNamespace(namespace)
         ),
-        getOrCreateSession: (
+        getOrCreateSession: async (
             tag: string,
             metadata: unknown,
             agentState: unknown,
             namespace: string
         ) => (
-            store.sessions.getOrCreateSession(tag, metadata, agentState, namespace) as unknown as ReturnType<SyncEngine['getOrCreateSession']>
+            await store.sessions.getOrCreateSession(tag, metadata, agentState, namespace)
         ),
-        handleRealtimeEvent: () => {},
-        recordSessionActivity: (sessionId: string, updatedAt: number) => {
-            store.sessions.touchSessionUpdatedAt(sessionId, updatedAt, 'default')
+        handleRealtimeEvent: async () => {},
+        recordSessionActivity: async (sessionId: string, updatedAt: number) => {
+            await store.sessions.touchSessionUpdatedAt(sessionId, updatedAt, 'default')
         }
     } as unknown as SyncEngine
 }
 
-function createRoutesApp(namespace: string): Hono<WebAppEnv> {
+async function createRoutesApp(namespace: string): Promise<Hono<WebAppEnv>> {
+    const store = await createTestStore()
     const app = new Hono<WebAppEnv>()
     app.use('*', async (c, next) => {
         c.set('namespace', namespace)
         await next()
     })
     app.route('/api', createCodexDesktopRoutes({
-        store: new Store(':memory:'),
+        store,
         getSyncEngine: () => null
     }))
     return app
@@ -112,9 +117,9 @@ describe('Codex Desktop import routes', () => {
         }
     })
 
-    it('imports normal response_item chat messages', async () => {
+    itPg('imports normal response_item chat messages', async () => {
         const codexHome = mkdtempSync(join(tmpdir(), 'hapi-codex-home-test-'))
-        const store = new Store(':memory:')
+        const store = await createTestStore()
         const codexSessionId = '11111111-1111-4111-8111-111111111111'
         process.env.CODEX_HOME = codexHome
 
@@ -129,9 +134,9 @@ describe('Codex Desktop import routes', () => {
             })
 
             expect(result.success).toBe(true)
-            const session = store.sessions.getSessionsByNamespace('default')[0]
+            const session = (await store.sessions.getSessionsByNamespace('default'))[0]
             expect(session).toBeDefined()
-            const messages = store.messages.getAllMessages(session.id)
+            const messages = await store.messages.getAllMessages(session.id)
             expect(messages).toHaveLength(2)
             expect(messages[0].content).toEqual({
                 role: 'user',
@@ -163,9 +168,9 @@ describe('Codex Desktop import routes', () => {
         }
     })
 
-    it('binds imported transcripts to the unique online machine that owns the cwd', async () => {
+    itPg('binds imported transcripts to the unique online machine that owns the cwd', async () => {
         const codexHome = mkdtempSync(join(tmpdir(), 'hapi-codex-home-machine-test-'))
-        const store = new Store(':memory:')
+        const store = await createTestStore()
         const codexSessionId = '22222222-2222-4222-8222-222222222222'
         process.env.CODEX_HOME = codexHome
 
@@ -184,7 +189,7 @@ describe('Codex Desktop import routes', () => {
             })
 
             expect(result.success).toBe(true)
-            const session = store.sessions.getSessionsByNamespace('default')[0]
+            const session = (await store.sessions.getSessionsByNamespace('default'))[0]
             expect(session.metadata).toMatchObject({
                 path: '/home/user/workspace/project',
                 machineId: 'machine-1'
@@ -195,9 +200,9 @@ describe('Codex Desktop import routes', () => {
         }
     })
 
-    it('does not bind imported transcripts when multiple online machines own the cwd', async () => {
+    itPg('does not bind imported transcripts when multiple online machines own the cwd', async () => {
         const codexHome = mkdtempSync(join(tmpdir(), 'hapi-codex-home-machine-ambiguous-test-'))
-        const store = new Store(':memory:')
+        const store = await createTestStore()
         const codexSessionId = '33333333-3333-4333-8333-333333333333'
         process.env.CODEX_HOME = codexHome
 
@@ -216,7 +221,7 @@ describe('Codex Desktop import routes', () => {
             })
 
             expect(result.success).toBe(true)
-            const session = store.sessions.getSessionsByNamespace('default')[0]
+            const session = (await store.sessions.getSessionsByNamespace('default'))[0]
             expect(session.metadata).toMatchObject({
                 path: '/home/user/workspace/project'
             })
@@ -227,9 +232,9 @@ describe('Codex Desktop import routes', () => {
         }
     })
 
-    it('does not bind imported transcripts when no online machine owns the cwd', async () => {
+    itPg('does not bind imported transcripts when no online machine owns the cwd', async () => {
         const codexHome = mkdtempSync(join(tmpdir(), 'hapi-codex-home-machine-miss-test-'))
-        const store = new Store(':memory:')
+        const store = await createTestStore()
         const codexSessionId = '44444444-4444-4444-8444-444444444444'
         process.env.CODEX_HOME = codexHome
 
@@ -247,7 +252,7 @@ describe('Codex Desktop import routes', () => {
             })
 
             expect(result.success).toBe(true)
-            const session = store.sessions.getSessionsByNamespace('default')[0]
+            const session = (await store.sessions.getSessionsByNamespace('default'))[0]
             expect(session.metadata).toMatchObject({
                 path: '/home/user/workspace/project'
             })
@@ -258,15 +263,15 @@ describe('Codex Desktop import routes', () => {
         }
     })
 
-    it('keeps an existing machineId when updating an imported transcript', async () => {
+    itPg('keeps an existing machineId when updating an imported transcript', async () => {
         const codexHome = mkdtempSync(join(tmpdir(), 'hapi-codex-home-machine-existing-test-'))
-        const store = new Store(':memory:')
+        const store = await createTestStore()
         const codexSessionId = '55555555-5555-4555-8555-555555555555'
         process.env.CODEX_HOME = codexHome
 
         try {
             createTranscript(codexHome, codexSessionId, '/home/user/workspace/project')
-            store.sessions.getOrCreateSession(randomUUID(), {
+            await store.sessions.getOrCreateSession(randomUUID(), {
                 path: '/home/user/workspace/project',
                 flavor: 'codex',
                 codexSessionId,
@@ -284,7 +289,7 @@ describe('Codex Desktop import routes', () => {
             })
 
             expect(result.success).toBe(true)
-            const session = store.sessions.getSessionsByNamespace('default')[0]
+            const session = (await store.sessions.getSessionsByNamespace('default'))[0]
             expect(session.metadata).toMatchObject({
                 path: '/home/user/workspace/project',
                 machineId: 'machine-existing'
@@ -295,8 +300,8 @@ describe('Codex Desktop import routes', () => {
         }
     })
 
-    it('rejects Codex transcript endpoints outside the default namespace', async () => {
-        const app = createRoutesApp('team-a')
+    itPg('rejects Codex transcript endpoints outside the default namespace', async () => {
+        const app = await createRoutesApp('team-a')
         const response = await app.request('/api/codex/sessions')
 
         expect(response.status).toBe(403)
@@ -306,12 +311,12 @@ describe('Codex Desktop import routes', () => {
         })
     })
 
-    it('allows Codex transcript endpoints in the default namespace', async () => {
+    itPg('allows Codex transcript endpoints in the default namespace', async () => {
         const codexHome = mkdtempSync(join(tmpdir(), 'hapi-codex-home-route-test-'))
         process.env.CODEX_HOME = codexHome
 
         try {
-            const app = createRoutesApp('default')
+            const app = await createRoutesApp('default')
             const response = await app.request('/api/codex/sessions')
 
             expect(response.status).toBe(200)

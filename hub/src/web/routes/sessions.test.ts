@@ -107,7 +107,7 @@ function createApp(session: Session, opts?: {
     const sessionExists = opts?.sessionExists !== false
     const archiveSessionMock = opts?.archiveSession ?? (async () => {})
     const engine = {
-        resolveSessionAccess: () => sessionExists
+        resolveSessionAccess: async () => sessionExists
             ? { ok: true, sessionId: session.id, session }
             : { ok: false, reason: 'not-found' },
         applySessionConfig,
