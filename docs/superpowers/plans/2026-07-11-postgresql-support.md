@@ -980,7 +980,11 @@ git commit -m "feat(hub): require DATABASE_URL, remove DB_PATH (P4 config switch
 - Modify: `hub/scripts/cleanup-sessions.ts` (port from SQLite to PG)
 - Verify: no `bun:sqlite` import remains under `hub/src/` (runtime).
 
-- [ ] **Step 1: Confirm nothing under `hub/src/store/pg/` or consumers imports the old modules**
+- [ ] **Step 1: Remove `cursorLegacyMigrator` usage from its sole importer FIRST**
+
+`hub/src/sync/syncEngine.ts:19` imports `CursorLegacyMigrator` and uses it at runtime. Before deleting the migrator, remove the import + all usage sites in `syncEngine.ts` (the legacy pre-V8 SQLite migration path is obsolete — fresh PG has no legacy SQLite to migrate from; existing users run the P5 script instead). Verify with `grep -rn cursorLegacyMigrator hub/src` → only the migrator file + its fixture remain.
+
+- [ ] **Step 2: Confirm nothing under `hub/src/store/pg/` or consumers imports the old modules**
 
 ```bash
 cd hub && grep -rn "from '\.\./store/\(sessions\|messages\|machines\|users\|pushSubscriptions\|versionedUpdates\)'" src --include="*.ts" | grep -v "/pg/"
@@ -988,7 +992,7 @@ cd hub && grep -rn "from '\.\./store/\(sessions\|messages\|machines\|users\|push
 
 Expected: empty.
 
-- [ ] **Step 2: Delete the files**
+- [ ] **Step 3: Delete the files**
 
 ```bash
 cd hub && git rm \
@@ -1003,17 +1007,17 @@ cd hub && git rm \
 
 (Adjust if `namespace.test.ts` or other old tests still fail — delete only tests of the removed SQLite store, not PG tests.)
 
-- [ ] **Step 3: Verify no runtime `bun:sqlite` import remains**
+- [ ] **Step 4: Verify no runtime `bun:sqlite` import remains**
 
 ```bash
 cd hub && grep -rn "bun:sqlite" src --include="*.ts"
 ```
 
-Expected: empty (after Step 4). `hub/scripts/*` may still use it — those are addressed next.
+Expected: empty (after Step 5). `hub/scripts/*` may still use it — those are addressed next.
 
-- [ ] **Step 4: Port `hub/scripts/cleanup-sessions.ts` to PG** — it currently opens SQLite directly. Replace with `const store = await Store.create(process.env.DATABASE_URL!)`, use the async session API for the cleanup pass, `await store.close()`.
-- [ ] **Step 5:** `bun typecheck && bun test` — green.
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Port `hub/scripts/cleanup-sessions.ts` to PG** — it currently opens SQLite directly. Replace with `const store = await Store.create(process.env.DATABASE_URL!)`, use the async session API for the cleanup pass, `await store.close()`.
+- [ ] **Step 6:** `bun typecheck && bun test` — green.
+- [ ] **Step 7: Commit**
 
 ```bash
 git add -A hub/src hub/scripts
