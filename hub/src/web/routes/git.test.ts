@@ -19,7 +19,7 @@ describe('generated images route', () => {
         const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
         const session = { id: 'session-1', namespace: 'default', active: true } as unknown as Session
         const engine = {
-            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
+            resolveSessionAccess: async () => ({ ok: true as const, sessionId: 'session-1', session }),
             readGeneratedImage: async () => ({
                 success: true,
                 content: pngBytes.toString('base64'),
@@ -43,7 +43,7 @@ describe('generated images route', () => {
         const session = { id: 'session-1', namespace: 'default', active: true } as unknown as Session
         let rpcCalls = 0
         const engine = {
-            resolveSessionAccess: () => ({ ok: true as const, sessionId: 'session-1', session }),
+            resolveSessionAccess: async () => ({ ok: true as const, sessionId: 'session-1', session }),
             readGeneratedImage: async () => {
                 rpcCalls += 1
                 return { success: true, content: '', mimeType: 'image/png', fileName: 'shot.png' }
