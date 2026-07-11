@@ -9,7 +9,7 @@ Telegram bot + HTTP API + realtime updates for hapi hub.
 - Server-Sent Events stream for live updates in the web app.
 - Socket.IO channel for CLI connections.
 - Serves the web app from `web/dist` or embedded assets in the single binary.
-- Persists state in SQLite.
+- Persists state in PostgreSQL.
 
 ## Configuration
 
@@ -35,7 +35,9 @@ See `src/configuration.ts` for all options.
 - `HAPI_LISTEN_PORT` - HTTP port (default: 3006).
 - `CORS_ORIGINS` - Comma-separated origins, or `*`.
 - `HAPI_HOME` - Data directory (default: ~/.hapi).
-- `DB_PATH` - SQLite database path (default: HAPI_HOME/hapi.db).
+- `DATABASE_URL` - PostgreSQL connection string (required, e.g. postgres://user:pass@host:5432/hapi).
+- `DATABASE_SSL` - SSL mode: `require`|`prefer`|`disable` (default: `require` for non-localhost).
+- `DATABASE_MAX_CONNECTIONS` - Max PG pool connections (default: 10).
 - `TELEGRAM_NOTIFICATION` - Enable/disable Telegram notifications (default: true).
 - `HAPI_RELAY_API` - Relay API domain (default: relay.hapi.run).
 - `HAPI_RELAY_AUTH` - Relay auth key (default: hapi).
@@ -203,7 +205,7 @@ See `src/sync/syncEngine.ts` for the main session/message manager:
 
 ## Storage
 
-See `src/store/index.ts` for SQLite persistence:
+See `src/store/index.ts` for PostgreSQL persistence:
 
 - Sessions with metadata and agent state.
 - Messages with pagination support.
@@ -218,7 +220,7 @@ See `src/store/index.ts` for SQLite persistence:
 - `src/socket/handlers/cli/` - Modular CLI handlers.
 - `src/telegram/` - Telegram bot.
 - `src/sync/` - Core session/message logic.
-- `src/store/` - SQLite persistence.
+- `src/store/` - PostgreSQL persistence.
 - `src/sse/` - Server-Sent Events.
 - `src/config/` - Configuration loading and generation.
 - `src/notifications/` - Push and Telegram notifications.

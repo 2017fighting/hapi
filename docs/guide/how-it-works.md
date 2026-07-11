@@ -12,7 +12,7 @@ HAPI consists of three interconnected components that work together to provide r
 │   │              │         │              │         │              │       │
 │   │   HAPI CLI   │◄───────►│  HAPI Hub    │◄───────►│   Web App    │       │
 │   │              │ Socket  │              │   SSE   │  (embedded)  │       │
-│   │  + AI Agent  │   .IO   │  + SQLite    │         │              │       │
+│   │  + AI Agent  │   .IO   │  + Postgres  │         │              │       │
 │   │              │         │  + REST API  │         │              │       │
 │   └──────────────┘         └──────┬───────┘         └──────────────┘       │
 │                                   │                                        │
@@ -71,7 +71,7 @@ The hub is the central service that connects everything:
 - **HTTP API** - RESTful endpoints for sessions, messages, permissions
 - **Socket.IO** - Real-time bidirectional communication with CLI
 - **SSE (Server-Sent Events)** - Live updates pushed to web clients
-- **SQLite Database** - Persistent storage for sessions and messages
+- **PostgreSQL Database** - Persistent storage for sessions and messages
 - **Telegram Bot** - Notifications and Mini App integration
 
 ### Web App

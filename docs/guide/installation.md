@@ -43,7 +43,7 @@ HAPI has three components:
 │                                                     │
 │  ┌─────────┐    Socket.IO    ┌─────────────┐       │
 │  │  CLI    │◄───────────────►│    Hub      │       │
-│  │+ Agent  │                 │  + SQLite   │       │
+│  │+ Agent  │                 │  + Postgres │       │
 │  └─────────┘                 └──────┬──────┘       │
 │       ▲                             │ SSE          │
 │       │ spawn                       ▼              │
@@ -164,7 +164,6 @@ On first run, HAPI:
 ```
 ~/.hapi/
 ├── settings.json      # Main configuration
-├── hapi.db           # SQLite database (hub)
 ├── runner.state.json  # Runner process state
 └── logs/             # Log files
 ```
@@ -187,7 +186,9 @@ On first run, HAPI:
 | `HAPI_RELAY_FORCE_TCP` | `false` | - | Force TCP mode for relay |
 | `VAPID_SUBJECT` | `mailto:admin@hapi.run` | - | Web Push contact info |
 | `HAPI_HOME` | `~/.hapi` | - | Config directory path |
-| `DB_PATH` | `~/.hapi/hapi.db` | - | Database file path |
+| `DATABASE_URL` | - | - | PostgreSQL connection string (required) |
+| `DATABASE_SSL` | `require` | - | SSL mode: require/prefer/disable (default require for non-localhost) |
+| `DATABASE_MAX_CONNECTIONS` | `10` | - | Max PG pool connections |
 | `ELEVENLABS_API_KEY` | - | - | ElevenLabs API key for voice |
 | `ELEVENLABS_AGENT_ID` | Auto-created | - | Custom ElevenLabs agent ID |
 </details>
@@ -210,6 +211,37 @@ When ENV values are set and not present in settings.json, they are automatically
 
 JSON Schema: [settings.schema.json](https://hapi.run/schemas/settings.schema.json)
 </details>
+
+## Database (PostgreSQL)
+
+The hub requires a PostgreSQL 16+ database. Set `DATABASE_URL`:
+
+```bash
+export DATABASE_URL=postgres://user:pass@host:5432/hapi
+```
+
+Quick local Postgres:
+
+```bash
+docker run -d --name hapi-postgres \
+  -e POSTGRES_DB=hapi -e POSTGRES_USER=hapi -e POSTGRES_PASSWORD=hapi \
+  -p 5432:5432 postgres:16
+```
+
+Optional: `DATABASE_SSL` (`require`|`prefer`|`disable`; default `require` for non-localhost) and `DATABASE_MAX_CONNECTIONS` (default `10`).
+
+### Migrating from SQLite
+
+If you have an existing SQLite `hapi.db` (user_version 10), copy it into PostgreSQL with the one-time migration script:
+
+```bash
+bun run hub/scripts/migrate-sqlite-to-postgres.ts \
+  --sqlite ~/.hapi/hapi.db --to "$DATABASE_URL" --dry-run   # preview counts
+bun run hub/scripts/migrate-sqlite-to-postgres.ts \
+  --sqlite ~/.hapi/hapi.db --to "$DATABASE_URL" --force      # truncate + copy
+```
+
+The script verifies per-table counts and resets SERIAL sequences after copying.
 
 ## CLI setup
 
