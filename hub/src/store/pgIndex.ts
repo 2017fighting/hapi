@@ -3,6 +3,12 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import postgres from 'postgres'
 
+import { SessionStore } from './pg/sessionStore'
+import { MessageStore } from './pg/messageStore'
+import { MachineStore } from './pg/machineStore'
+import { UserStore } from './pg/userStore'
+import { PushStore } from './pg/pushStore'
+
 export type Sql = ReturnType<typeof postgres>
 
 export interface StoreOptions {
@@ -42,12 +48,13 @@ function defaultSsl(connectionString: string): 'require' | 'prefer' | 'disable' 
 export class Store {
     readonly sql: Sql
     private readonly ownsSql: boolean
-    // Wired in Task 10; typed loosely until then.
-    readonly sessions: unknown
-    readonly machines: unknown
-    readonly messages: unknown
-    readonly users: unknown
-    readonly push: unknown
+    // Wired by wireStores() in Store.create() — definite-assignment asserted
+    // because Object.assign populates these after the constructor returns.
+    readonly sessions!: SessionStore
+    readonly machines!: MachineStore
+    readonly messages!: MessageStore
+    readonly users!: UserStore
+    readonly push!: PushStore
 
     private constructor(sql: Sql, ownsSql: boolean) {
         this.sql = sql
@@ -69,7 +76,18 @@ export class Store {
             })
         const store = new Store(sql, opts.sql ? false : true)
         await store.initSchema()
+        store.wireStores(sql)
         return store
+    }
+
+    private wireStores(sql: Sql): void {
+        Object.assign(this, {
+            sessions: new SessionStore(sql),
+            machines: new MachineStore(sql),
+            messages: new MessageStore(sql),
+            users: new UserStore(sql),
+            push: new PushStore(sql),
+        })
     }
 
     private async initSchema(): Promise<void> {
