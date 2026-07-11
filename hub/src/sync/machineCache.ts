@@ -42,13 +42,13 @@ export class MachineCache {
         return this.getMachinesByNamespace(namespace).filter((machine) => machine.active)
     }
 
-    getOrCreateMachine(id: string, metadata: unknown, runnerState: unknown, namespace: string): Machine {
-        const stored = this.store.machines.getOrCreateMachine(id, metadata, runnerState, namespace)
-        return this.refreshMachine(stored.id) ?? (() => { throw new Error('Failed to load machine') })()
+    async getOrCreateMachine(id: string, metadata: unknown, runnerState: unknown, namespace: string): Promise<Machine> {
+        const stored = await this.store.machines.getOrCreateMachine(id, metadata, runnerState, namespace)
+        return await this.refreshMachine(stored.id) ?? (() => { throw new Error('Failed to load machine') })()
     }
 
-    refreshMachine(machineId: string): Machine | null {
-        const stored = this.store.machines.getMachine(machineId)
+    async refreshMachine(machineId: string): Promise<Machine | null> {
+        const stored = await this.store.machines.getMachine(machineId)
         if (!stored) {
             const existed = this.machines.delete(machineId)
             if (existed) {
@@ -101,18 +101,18 @@ export class MachineCache {
         return machine
     }
 
-    reloadAll(): void {
-        const machines = this.store.machines.getMachines()
+    async reloadAll(): Promise<void> {
+        const machines = await this.store.machines.getMachines()
         for (const machine of machines) {
-            this.refreshMachine(machine.id)
+            await this.refreshMachine(machine.id)
         }
     }
 
-    handleMachineAlive(payload: { machineId: string; time: number }): void {
+    async handleMachineAlive(payload: { machineId: string; time: number }): Promise<void> {
         const t = clampAliveTime(payload.time)
         if (!t) return
 
-        const machine = this.machines.get(payload.machineId) ?? this.refreshMachine(payload.machineId)
+        const machine = this.machines.get(payload.machineId) ?? await this.refreshMachine(payload.machineId)
         if (!machine) return
 
         const wasActive = machine.active
