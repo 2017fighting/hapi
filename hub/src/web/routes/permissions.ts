@@ -37,7 +37,7 @@ export function createPermissionsRoutes(getSyncEngine: () => SyncEngine | null):
 
         const requestId = c.req.param('requestId')
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = await requireSessionFromParam(c, engine, { requireActive: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -76,7 +76,7 @@ export function createPermissionsRoutes(getSyncEngine: () => SyncEngine | null):
 
         const requestId = c.req.param('requestId')
 
-        const sessionResult = requireSessionFromParam(c, engine, { requireActive: true })
+        const sessionResult = await requireSessionFromParam(c, engine, { requireActive: true })
         if (sessionResult instanceof Response) {
             return sessionResult
         }

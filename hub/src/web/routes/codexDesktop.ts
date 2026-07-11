@@ -836,31 +836,31 @@ function collectImportCandidates(
     store: Store,
     namespace: string,
     getSyncEngine?: () => SyncEngine | null
-): ImportCandidate[] {
+): Promise<ImportCandidate[]> {
     const engineSessions = getSyncEngine?.()?.getSessionsByNamespace(namespace) ?? []
     if (engineSessions.length > 0) {
-        return engineSessions.map((session) => ({
+        return Promise.resolve(engineSessions.map((session) => ({
             sessionId: session.id,
             active: session.active,
             updatedAt: session.updatedAt,
             metadata: asRecord(session.metadata)
-        }))
+        })))
     }
 
-    return store.sessions.getSessionsByNamespace(namespace).map((session) => ({
+    return store.sessions.getSessionsByNamespace(namespace).then((sessions) => sessions.map((session) => ({
         sessionId: session.id,
         active: session.active,
         updatedAt: session.updatedAt,
         metadata: asRecord(session.metadata)
-    }))
+    })))
 }
 
-function selectImportTargetSession(
+async function selectImportTargetSession(
     store: Store,
     candidates: ImportCandidate[],
     codexSessionId: string,
     importedComparableMessages: string[]
-): ImportTargetSelection {
+): Promise<ImportTargetSelection> {
     const relatedCandidates = candidates
         .filter((candidate) => candidate.metadata?.codexSessionId === codexSessionId)
         .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -873,7 +873,7 @@ function selectImportTargetSession(
     let bestPrefixCount = -1
 
     for (const candidate of relatedCandidates) {
-        const comparableMessages = store.messages.getAllMessages(candidate.sessionId)
+        const comparableMessages = (await store.messages.getAllMessages(candidate.sessionId))
             .map((message) => normalizeComparableContent(message.content))
             .filter((value): value is string => value !== null)
 
@@ -905,19 +905,19 @@ function selectImportTargetSession(
     }
 }
 
-function listDuplicateCodexSessionGroups(
+async function listDuplicateCodexSessionGroups(
     store: Store,
     namespace: string,
     codexSessionIds: string[],
     getSyncEngine?: () => SyncEngine | null
-): DuplicateSessionGroupCandidate[] {
+): Promise<DuplicateSessionGroupCandidate[]> {
     const requestedSessionIds = new Set(codexSessionIds)
     if (requestedSessionIds.size === 0) {
         return []
     }
 
     const groups = new Map<string, ImportCandidate[]>()
-    for (const candidate of collectImportCandidates(store, namespace, getSyncEngine)) {
+    for (const candidate of await collectImportCandidates(store, namespace, getSyncEngine)) {
         const codexSessionId = typeof candidate.metadata?.codexSessionId === 'string'
             ? candidate.metadata.codexSessionId
             : null
@@ -947,7 +947,7 @@ async function mergeDuplicateCodexSessionGroups(options: {
     codexSessionIds: string[]
     getSyncEngine?: () => SyncEngine | null
 }): Promise<CodexMergeDuplicateSessionsResponse> {
-    const groups = listDuplicateCodexSessionGroups(
+    const groups = await listDuplicateCodexSessionGroups(
         options.store,
         options.namespace,
         options.codexSessionIds,
@@ -986,24 +986,27 @@ async function mergeSingleDuplicateCodexSessionGroup(options: {
     getSyncEngine?: () => SyncEngine | null
 }): Promise<CodexDuplicateSessionGroup> {
     const engine = options.getSyncEngine?.() ?? null
-    const sessionStates = options.group.sessions
-        .map((candidate) => ({
+    const sessionStates: Array<(typeof options.group.sessions)[number] & {
+        storedMessages: StoredMessage[]
+        comparableKeys: string[]
+    }> = []
+    for (const candidate of options.group.sessions) {
+        const storedMessages = await options.store.messages.getAllMessages(candidate.sessionId)
+        sessionStates.push({
             ...candidate,
-            storedMessages: options.store.messages.getAllMessages(candidate.sessionId),
-        }))
-        .map((candidate) => ({
-            ...candidate,
-            comparableKeys: candidate.storedMessages.map((message) => getComparableStoredMessageKey(message))
-        }))
-        .sort((a, b) => {
-            if (b.comparableKeys.length !== a.comparableKeys.length) {
-                return b.comparableKeys.length - a.comparableKeys.length
-            }
-            if (b.updatedAt !== a.updatedAt) {
-                return b.updatedAt - a.updatedAt
-            }
-            return a.sessionId.localeCompare(b.sessionId)
+            storedMessages,
+            comparableKeys: storedMessages.map((message) => getComparableStoredMessageKey(message))
         })
+    }
+    sessionStates.sort((a, b) => {
+        if (b.comparableKeys.length !== a.comparableKeys.length) {
+            return b.comparableKeys.length - a.comparableKeys.length
+        }
+        if (b.updatedAt !== a.updatedAt) {
+            return b.updatedAt - a.updatedAt
+        }
+        return a.sessionId.localeCompare(b.sessionId)
+    })
 
     if (sessionStates.some((candidate) => candidate.active)) {
         throw new Error('当前会话仍处于活跃状态，请等待会话结束后重试')
@@ -1027,7 +1030,7 @@ async function mergeSingleDuplicateCodexSessionGroup(options: {
                 continue
             }
 
-            const copied = options.store.messages.copyMessageToSession(canonical.sessionId, {
+            const copied = await options.store.messages.copyMessageToSession(canonical.sessionId, {
                 content: message.content,
                 createdAt: message.createdAt,
                 localId: message.localId,
@@ -1042,7 +1045,7 @@ async function mergeSingleDuplicateCodexSessionGroup(options: {
         if (engine) {
             await engine.deleteSession(source.sessionId)
         } else {
-            const deleted = options.store.sessions.deleteSession(source.sessionId, options.namespace)
+            const deleted = await options.store.sessions.deleteSession(source.sessionId, options.namespace)
             if (!deleted) {
                 throw new Error(`Failed to delete duplicate Hapi session: ${source.sessionId}`)
             }
@@ -1055,14 +1058,14 @@ async function mergeSingleDuplicateCodexSessionGroup(options: {
     }
 
     if (engine) {
-        engine.recordSessionActivity(canonical.sessionId, latestActivity)
+        await engine.recordSessionActivity(canonical.sessionId, latestActivity)
         // 中文注释：即使这次只是删除重复分身、没有新增消息，也主动刷新 canonical 会话，确保左侧列表立刻收敛到合并后的状态。
-        engine.handleRealtimeEvent({
+        await engine.handleRealtimeEvent({
             type: 'session-updated',
             sessionId: canonical.sessionId
         })
     } else {
-        options.store.sessions.touchSessionUpdatedAt(canonical.sessionId, latestActivity, options.namespace)
+        await options.store.sessions.touchSessionUpdatedAt(canonical.sessionId, latestActivity, options.namespace)
     }
 
     return {
@@ -1497,13 +1500,13 @@ function createImportSuccessResponse(
     }
 }
 
-function importSingleCodexSession(options: {
+async function importSingleCodexSession(options: {
     codexSessionId: string
     localSessionsById: Map<string, CodexLocalSessionSummary>
     store: Store
     namespace: string
     getSyncEngine?: () => SyncEngine | null
-}): ScriptLaunchResponse {
+}): Promise<ScriptLaunchResponse> {
     const summary = options.localSessionsById.get(options.codexSessionId)
     if (!summary) {
         return {
@@ -1532,15 +1535,15 @@ function importSingleCodexSession(options: {
         .filter((value): value is string => value !== null)
 
     try {
-        const candidates = collectImportCandidates(options.store, options.namespace, options.getSyncEngine)
-        const target = selectImportTargetSession(
+        const candidates = await collectImportCandidates(options.store, options.namespace, options.getSyncEngine)
+        const target = await selectImportTargetSession(
             options.store,
             candidates,
             options.codexSessionId,
             importedComparableMessages
         )
         const engine = options.getSyncEngine?.() ?? null
-        const existingStored = target.sessionId ? options.store.sessions.getSessionByNamespace(target.sessionId, options.namespace) : null
+        const existingStored = target.sessionId ? await options.store.sessions.getSessionByNamespace(target.sessionId, options.namespace) : null
         const metadata = buildImportedSessionMetadata(
             transcript,
             asRecord(existingStored?.metadata),
@@ -1551,16 +1554,18 @@ function importSingleCodexSession(options: {
         let created = false
         if (!sessionId) {
             // 中文注释：找不到可安全续写的历史会话时，直接新建一个 Hapi 会话，避免把已分叉的数据硬写进旧会话。
-            const createdSession = engine?.getOrCreateSession(
-                randomUUID(),
-                metadata,
-                {},
-                options.namespace
-            ) ?? options.store.sessions.getOrCreateSession(randomUUID(), metadata, {}, options.namespace)
+            const createdSession = engine
+                ? await engine.getOrCreateSession(
+                    randomUUID(),
+                    metadata,
+                    {},
+                    options.namespace
+                )
+                : await options.store.sessions.getOrCreateSession(randomUUID(), metadata, {}, options.namespace)
             sessionId = createdSession.id
             created = true
         } else if (existingStored) {
-            const updatedMetadata = options.store.sessions.updateSessionMetadata(
+            const updatedMetadata = await options.store.sessions.updateSessionMetadata(
                 existingStored.id,
                 metadata,
                 existingStored.metadataVersion,
@@ -1569,7 +1574,7 @@ function importSingleCodexSession(options: {
             if (updatedMetadata.result !== 'success') {
                 throw new Error(`Failed to update metadata for Hapi session: ${existingStored.id}`)
             }
-            engine?.handleRealtimeEvent({ type: 'session-updated', sessionId: existingStored.id })
+            await engine?.handleRealtimeEvent({ type: 'session-updated', sessionId: existingStored.id })
         }
 
         if (!sessionId) {
@@ -1578,14 +1583,17 @@ function importSingleCodexSession(options: {
 
         const comparablePrefixCount = sessionId ? target.comparablePrefixCount : 0
         const messagesToAppend = transcript.messages.slice(comparablePrefixCount)
-        const appendedMessages = messagesToAppend.map((message) => options.store.messages.addMessage(sessionId!, message))
+        const appendedMessages: StoredMessage[] = []
+        for (const message of messagesToAppend) {
+            appendedMessages.push(await options.store.messages.addMessage(sessionId!, message))
+        }
 
         // 中文注释：更新 Hapi 会话的 updatedAt，并在已有会话追加时广播新增消息，让当前打开的聊天页立刻显示客户端新增内容。
         const latestMessageCreatedAt = appendedMessages[appendedMessages.length - 1]?.createdAt ?? Date.now()
         if (engine) {
-            engine.recordSessionActivity(sessionId, latestMessageCreatedAt)
+            await engine.recordSessionActivity(sessionId, latestMessageCreatedAt)
         } else {
-            options.store.sessions.touchSessionUpdatedAt(sessionId, latestMessageCreatedAt, options.namespace)
+            await options.store.sessions.touchSessionUpdatedAt(sessionId, latestMessageCreatedAt, options.namespace)
         }
         if (!created) {
             emitImportedMessageEvents(engine, sessionId, appendedMessages)
@@ -1637,7 +1645,7 @@ export async function importSelectedCodexSessions(options: {
     const localSessionsById = new Map(listLocalCodexSessions().map((session) => [session.id, session]))
     const results: ScriptLaunchResponse[] = []
     for (const codexSessionId of codexSessionIds) {
-        const result = importSingleCodexSession({
+        const result = await importSingleCodexSession({
             codexSessionId,
             localSessionsById,
             store: options.store,
@@ -1739,12 +1747,12 @@ export function createCodexDesktopRoutes(options: {
         }
 
         // 中文注释：这里只检查本次导入弹窗里勾选过的 codexSessionId；未选中的会话即使也有重复，也不参与本轮提示。
-        const duplicates = listDuplicateCodexSessionGroups(
+        const duplicates = (await listDuplicateCodexSessionGroups(
             options.store,
             c.get('namespace'),
             parsed.sessionIds,
             options.getSyncEngine
-        ).map((group) => ({
+        )).map((group) => ({
             codexSessionId: group.codexSessionId,
             hapiSessionIds: group.sessions.map((session) => session.sessionId)
         }))

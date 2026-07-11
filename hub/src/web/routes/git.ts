@@ -59,7 +59,7 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = await requireSessionFromParam(c, engine)
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -79,7 +79,7 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = await requireSessionFromParam(c, engine)
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -100,7 +100,7 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = await requireSessionFromParam(c, engine)
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -130,7 +130,7 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = await requireSessionFromParam(c, engine)
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -155,7 +155,7 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = await requireSessionFromParam(c, engine)
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -199,7 +199,7 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = await requireSessionFromParam(c, engine)
         if (sessionResult instanceof Response) {
             return sessionResult
         }
@@ -253,7 +253,7 @@ export function createGitRoutes(getSyncEngine: () => SyncEngine | null): Hono<We
             return engine
         }
 
-        const sessionResult = requireSessionFromParam(c, engine)
+        const sessionResult = await requireSessionFromParam(c, engine)
         if (sessionResult instanceof Response) {
             return sessionResult
         }
