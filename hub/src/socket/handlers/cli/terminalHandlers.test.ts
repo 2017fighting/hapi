@@ -13,13 +13,13 @@ class FakeSocket {
     readonly id: string
     readonly data: Record<string, unknown> = {}
     readonly emitted: EmittedEvent[] = []
-    private readonly handlers = new Map<string, (...args: unknown[]) => void>()
+    private readonly handlers = new Map<string, (...args: unknown[]) => Promise<void> | void>()
 
     constructor(id: string) {
         this.id = id
     }
 
-    on(event: string, handler: (...args: unknown[]) => void): this {
+    on(event: string, handler: (...args: unknown[]) => Promise<void> | void): this {
         this.handlers.set(event, handler)
         return this
     }
@@ -29,16 +29,15 @@ class FakeSocket {
         return true
     }
 
-    trigger(event: string, data?: unknown): void {
+    trigger(event: string, data?: unknown): Promise<void> | void {
         const handler = this.handlers.get(event)
         if (!handler) {
             return
         }
         if (typeof data === 'undefined') {
-            handler()
-            return
+            return handler()
         }
-        handler(data)
+        return handler(data)
     }
 }
 
@@ -51,7 +50,7 @@ function lastEmit(socket: FakeSocket, event: string): EmittedEvent | undefined {
 }
 
 describe('cli terminal handlers', () => {
-    it('removes stale registry entries after terminal errors', () => {
+    it('removes stale registry entries after terminal errors', async () => {
         const cliSocket = new FakeSocket('cli-socket')
         const terminalSocket = new FakeSocket('terminal-socket')
         const terminalNamespace = new FakeNamespace()
@@ -63,13 +62,13 @@ describe('cli terminal handlers', () => {
         registerTerminalHandlers(cliSocket as unknown as CliSocketWithData, {
             terminalRegistry,
             terminalNamespace: terminalNamespace as never,
-            resolveSessionAccess: () => ({ ok: true, value: {} as StoredSession }),
+            resolveSessionAccess: async () => ({ ok: true, value: {} as StoredSession }),
             emitAccessError: () => {
                 throw new Error('Unexpected access error')
             }
         })
 
-        cliSocket.trigger('terminal:error', {
+        await cliSocket.trigger('terminal:error', {
             sessionId: 'session-1',
             terminalId: 'terminal-1',
             message: 'Remote terminal is not supported on Windows yet.'

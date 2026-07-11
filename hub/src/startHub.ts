@@ -177,11 +177,11 @@ export async function startHub(options: StartHubOptions = {}): Promise<HubInstan
         store,
         jwtSecret,
         corsOrigins,
-        getSession: (sessionId) => {
-            if (syncEngine) {
-                return syncEngine.getSession(sessionId) ?? null
-            }
-            return store.sessions.getSession(sessionId)
+        getSession: async (sessionId) => {
+            const session = syncEngine
+                ? await syncEngine.getSession(sessionId)
+                : await store.sessions.getSession(sessionId)
+            return session ? { active: session.active, namespace: session.namespace } : null
         },
         onWebappEvent: (event: SyncEvent) => syncEngine?.handleRealtimeEvent(event),
         onSessionAlive: (payload) => syncEngine?.handleSessionAlive(payload),
