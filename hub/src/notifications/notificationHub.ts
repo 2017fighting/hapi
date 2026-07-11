@@ -21,7 +21,9 @@ export class NotificationHub {
         this.readyCooldownMs = options?.readyCooldownMs ?? 5000
         this.permissionDebounceMs = options?.permissionDebounceMs ?? 500
         this.unsubscribeSyncEvents = this.syncEngine.subscribe((event) => {
-            this.handleSyncEvent(event)
+            this.handleSyncEvent(event).catch((error) => {
+                console.error('[NotificationHub] handleSyncEvent failed:', error)
+            })
         })
     }
 
@@ -39,9 +41,9 @@ export class NotificationHub {
         this.lastReadyNotificationAt.clear()
     }
 
-    private handleSyncEvent(event: SyncEvent): void {
+    private async handleSyncEvent(event: SyncEvent): Promise<void> {
         if ((event.type === 'session-updated' || event.type === 'session-added') && event.sessionId) {
-            const session = this.syncEngine.getSession(event.sessionId)
+            const session = await this.syncEngine.getSession(event.sessionId)
             if (!session || !session.active) {
                 this.clearSessionState(event.sessionId)
                 return
@@ -91,8 +93,8 @@ export class NotificationHub {
         this.lastReadyNotificationAt.delete(sessionId)
     }
 
-    private getNotifiableSession(sessionId: string): Session | null {
-        const session = this.syncEngine.getSession(sessionId)
+    private async getNotifiableSession(sessionId: string): Promise<Session | null> {
+        const session = await this.syncEngine.getSession(sessionId)
         if (!session || !session.active) {
             return null
         }
@@ -139,7 +141,7 @@ export class NotificationHub {
     }
 
     private async sendPermissionNotification(sessionId: string): Promise<void> {
-        const session = this.getNotifiableSession(sessionId)
+        const session = await this.getNotifiableSession(sessionId)
         if (!session) {
             return
         }
@@ -148,7 +150,7 @@ export class NotificationHub {
     }
 
     private async sendReadyNotification(sessionId: string): Promise<void> {
-        const session = this.getNotifiableSession(sessionId)
+        const session = await this.getNotifiableSession(sessionId)
         if (!session) {
             return
         }
@@ -164,7 +166,7 @@ export class NotificationHub {
     }
 
     private async sendTaskNotification(sessionId: string, notification: TaskNotification): Promise<void> {
-        const session = this.getNotifiableSession(sessionId)
+        const session = await this.getNotifiableSession(sessionId)
         if (!session) {
             return
         }
@@ -173,7 +175,7 @@ export class NotificationHub {
     }
 
     private async sendSessionCompletion(sessionId: string, reason: SessionEndReason): Promise<void> {
-        const session = this.syncEngine.getSession(sessionId)
+        const session = await this.syncEngine.getSession(sessionId)
         if (!session) {
             return
         }

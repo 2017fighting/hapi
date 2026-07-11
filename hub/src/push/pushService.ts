@@ -37,7 +37,7 @@ export class PushService {
     }
 
     async sendToNamespace(namespace: string, payload: PushPayload): Promise<void> {
-        const subscriptions = this.store.push.getPushSubscriptionsByNamespace(namespace)
+        const subscriptions = await this.store.push.getPushSubscriptionsByNamespace(namespace)
         if (subscriptions.length === 0) {
             return
         }
@@ -69,7 +69,7 @@ export class PushService {
                 : null
 
             if (statusCode === 410) {
-                this.store.push.removePushSubscription(namespace, subscription.endpoint)
+                await this.store.push.removePushSubscription(namespace, subscription.endpoint)
                 return
             }
 
