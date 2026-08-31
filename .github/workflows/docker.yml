@@ -4,10 +4,26 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - main # rolling :main image
   workflow_dispatch:
     inputs:
       ref:
         description: "Ref to build (e.g. main, v1.2.3). Defaults to the current ref."
+        required: false
+  workflow_call:
+    # Called by sync-upstream.yml after it pushes a merge to main.
+    # GITHUB_TOKEN pushes don't trigger on:push workflows, so the caller
+    # invokes this directly with the post-merge SHA (github.sha in the caller
+    # is snapshotted before the merge).
+    inputs:
+      image-tag:
+        description: "Raw image tag for called builds (e.g. main)."
+        type: string
+        default: main
+      build-ref:
+        description: "Ref/SHA to check out. Defaults to the caller's ref."
+        type: string
         required: false
 
 permissions:
@@ -20,6 +36,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # workflow_call: build-ref; workflow_dispatch: ref; else default.
+          ref: ${{ inputs.build-ref || inputs.ref }}
 
       - name: Set up QEMU (for cross-arch builds)
         uses: docker/setup-qemu-action@v3
@@ -45,6 +64,10 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+            # :main rolling image on direct pushes to main.
+            type=raw,value=main,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            # :main (or custom tag) when called from sync-upstream.yml.
+            type=raw,value=${{ inputs.image-tag }},enable=${{ github.event_name == 'workflow_call' }}
             # :latest tracks the newest non-prerelease release tag (e.g. v0.20.2).
             # Excludes prereleases (anything with a "-" like v0.1.0-rc.1) and
             # default-branch pushes (tag pushes don't satisfy is_default_branch).

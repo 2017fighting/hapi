@@ -1,0 +1,163 @@
+name: Sync upstream
+
+# Merge upstream (tiann/hapi) main into this fork's main, run the test suite,
+# and publish the rolling :main image. Failures open an issue instead of
+# silently dropping the PG patches.
+#
+# Notes:
+# - The test job replicates test.yml (postgres service + integration env)
+#   because pushes made with GITHUB_TOKEN do not trigger other workflows.
+# - Push races (repo owner pushed meanwhile) just fail; the next cron retries.
+# - `synced == false` (no new upstream commits) skips everything quietly.
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # daily 02:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: true
+
+permissions:
+  contents: write # push the merge commit
+  issues: write # open/close upstream-sync issues
+  packages: write # called docker workflow pushes to GHCR
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: hapitest
+          POSTGRES_USER: hapitest
+          POSTGRES_PASSWORD: hapitest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hapitest -d hapitest"
+          --health-interval 1s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgres://hapitest:hapitest@localhost:5432/hapitest
+    outputs:
+      synced: ${{ steps.head.outputs.synced }}
+      head-sha: ${{ steps.head.outputs.sha }}
+    steps:
+      - name: Checkout fork main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0 # full history for the merge
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: git fetch https://github.com/tiann/hapi.git main:refs/remotes/upstream/main
+
+      - name: Check for new upstream commits
+        id: check
+        run: |
+          count=$(git rev-list --count HEAD..upstream/main)
+          echo "Upstream commits ahead: $count"
+          echo "new=$([ "$count" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Merge upstream/main
+        id: merge
+        if: steps.check.outputs.new == 'true'
+        run: git merge upstream/main --no-edit -m "Merge upstream/main (tiann/hapi) into PG main"
+
+      - name: Install dependencies
+        if: steps.check.outputs.new == 'true'
+        run: bun install
+
+      - name: Typecheck
+        if: steps.check.outputs.new == 'true'
+        run: bun typecheck
+
+      - name: Create integration test env
+        if: steps.check.outputs.new == 'true'
+        run: |
+          {
+              echo "HAPI_HOME=~/.hapi-dev-test"
+              echo "HAPI_API_URL=http://localhost:3006"
+              echo "CLI_API_TOKEN=${CLI_API_TOKEN:-dev-test-token}"
+              echo "HAPI_DAEMON_HTTP_TIMEOUT=60000"
+              echo "HAPI_DAEMON_HEARTBEAT_INTERVAL=30000"
+          } > cli/.env.integration-test
+
+      - name: Test
+        if: steps.check.outputs.new == 'true'
+        run: bun run test
+
+      - name: Record merge head
+        id: head
+        if: steps.check.outputs.new == 'true'
+        run: |
+          echo "synced=true" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Push merge to main
+        id: push
+        if: steps.check.outputs.new == 'true'
+        run: git push origin main
+
+      - name: Close resolved sync issues
+        if: success() && steps.check.outputs.new == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for n in $(gh issue list --label upstream-sync --state open --json number -q '.[].number'); do
+              gh issue close "$n" -c "Upstream sync succeeded (main is at $(git rev-parse --short HEAD))."
+          done
+
+      # Conflict or red tests -> issue. Push-rejected races are excluded:
+      # they self-heal on the next cron run.
+      - name: Open sync failure issue
+        if: failure() && steps.push.outcome != 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create upstream-sync --color d73a4a 2>/dev/null || true
+          conflicts=$(git diff --name-only --diff-filter=U 2>/dev/null | sed 's/^/- /' || true)
+          {
+              echo "Automatic upstream sync failed on $(date -u +%FT%TZ)."
+              echo
+              echo "Upstream head: \`$(git rev-parse upstream/main 2>/dev/null || echo unknown)\`"
+              if [ -n "$conflicts" ]; then
+                  echo
+                  echo "Conflicted files:"
+                  echo "$conflicts"
+              fi
+              echo
+              echo "Merge locally, resolve, and push. This issue auto-closes on the next successful sync."
+          } > /tmp/issue.md
+          n=$(gh issue list --label upstream-sync --state open --json number -q '.[0].number // empty')
+          if [ -n "$n" ]; then
+              gh issue comment "$n" --body-file /tmp/issue.md
+          else
+              gh issue create --title "Upstream sync failed" --body-file /tmp/issue.md --label upstream-sync
+          fi
+
+  build-main-image:
+    needs: sync
+    if: needs.sync.outputs.synced == 'true'
+    uses: ./.github/workflows/docker.yml
+    with:
+      image-tag: main
+      build-ref: ${{ needs.sync.outputs.head-sha }}
+    permissions:
+      contents: read
+      packages: write
