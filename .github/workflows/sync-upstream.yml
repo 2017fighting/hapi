@@ -1,0 +1,177 @@
+name: Sync upstream tag
+
+# Merge the newest upstream (tiann/hapi) release tag into this branch and publish
+# the version image. Untagged upstream main commits are deliberately never merged.
+#
+# Design (ADR 0001): this branch is upstream code + a Docker-only overlay, so the
+# merge cannot conflict in practice; `docker build` in docker.yml is the only gate
+# (upstream CI already tested the tagged code). Failures open an issue instead of
+# silently skipping a release; push races just fail and self-heal on the next run.
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # daily 02:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: true
+
+permissions:
+  contents: write # push the merge commit
+  issues: write # open/close upstream-sync issues
+
+env:
+  UPSTREAM_URL: https://github.com/tiann/hapi.git
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      synced: ${{ steps.head.outputs.synced }}
+      head-sha: ${{ steps.head.outputs.sha }}
+      version: ${{ steps.head.outputs.version }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0 # full history for the merge
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Find newest upstream release tag
+        id: latest
+        # Stable releases only: exclude peeled entries (^{}) and prereleases (-).
+        run: |
+          tag=$(git ls-remote --tags "$UPSTREAM_URL" 'v*' \
+              | grep -v '\^{}' | grep -v -- '-' \
+              | awk -F/ '{print $3}' | sort -V | tail -1)
+          if [ -z "$tag" ]; then
+              echo "No upstream release tags found" >&2
+              exit 1
+          fi
+          echo "Newest upstream release tag: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the tag
+        env:
+          TAG: ${{ steps.latest.outputs.tag }}
+        run: git fetch "$UPSTREAM_URL" "refs/tags/$TAG:refs/tags/$TAG"
+
+      - name: Already merged?
+        id: check
+        env:
+          TAG: ${{ steps.latest.outputs.tag }}
+        run: |
+          if git merge-base --is-ancestor "$TAG" HEAD; then
+              echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+              echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge upstream tag
+        id: merge
+        if: steps.check.outputs.new == 'true'
+        env:
+          TAG: ${{ steps.latest.outputs.tag }}
+        run: git merge "$TAG" --no-edit
+
+      - name: Record merge head
+        id: head
+        if: steps.check.outputs.new == 'true'
+        env:
+          TAG: ${{ steps.latest.outputs.tag }}
+        run: |
+          ver="${TAG#v}"
+          {
+              echo "synced=true"
+              echo "sha=$(git rev-parse HEAD)"
+              echo "version=$ver"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Push merge to main
+        id: push
+        if: steps.check.outputs.new == 'true'
+        run: git push origin main
+
+      - name: Close resolved sync issues
+        if: success() && steps.check.outputs.new == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for n in $(gh issue list --label upstream-sync --state open --json number -q '.[].number'); do
+              gh issue close "$n" -c "Upstream sync succeeded (main is at $(git rev-parse --short HEAD))."
+          done
+
+      # Conflict (upstream added overlapping files) -> issue. Push-rejected races
+      # are excluded: they self-heal on the next cron run.
+      - name: Open sync failure issue
+        if: failure() && steps.push.outcome != 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.latest.outputs.tag }}
+        run: |
+          gh label create upstream-sync --color d73a4a 2>/dev/null || true
+          conflicts=$(git diff --name-only --diff-filter=U 2>/dev/null | sed 's/^/- /' || true)
+          {
+              echo "Automatic upstream tag sync failed on $(date -u +%FT%TZ)."
+              echo
+              echo "Upstream tag: \`$TAG\`"
+              if [ -n "$conflicts" ]; then
+                  echo
+                  echo "Conflicted files:"
+                  echo "$conflicts"
+              fi
+              echo
+              echo "Merge locally, resolve, and push. This issue auto-closes on the next successful sync."
+          } > /tmp/issue.md
+          n=$(gh issue list --label upstream-sync --state open --json number -q '.[0].number // empty')
+          if [ -n "$n" ]; then
+              gh issue comment "$n" --body-file /tmp/issue.md
+          else
+              gh issue create --title "Upstream tag sync failed" --body-file /tmp/issue.md --label upstream-sync
+          fi
+
+  build-image:
+    needs: sync
+    if: needs.sync.outputs.synced == 'true'
+    uses: ./.github/workflows/docker.yml
+    with:
+      version: ${{ needs.sync.outputs.version }}
+      build-ref: ${{ needs.sync.outputs.head-sha }}
+    permissions:
+      contents: read
+      packages: write
+
+  # docker build is the only gate; a failure here means the merged tag is broken.
+  # Only fires when the merge itself succeeded (needs.sync.result == 'success'),
+  # so sync-side failures don't double-report with empty versions.
+  report-build-failure:
+    needs: [sync, build-image]
+    if: needs.sync.result == 'success' && needs.build-image.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open build failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.sync.outputs.version }}
+        run: |
+          gh label create upstream-sync --color d73a4a 2>/dev/null || true
+          {
+              echo "The merge of upstream v$VERSION landed on main, but the Docker image build failed."
+              echo
+              echo "See the workflow run for details. This issue auto-closes on the next successful sync."
+          } > /tmp/issue.md
+          n=$(gh issue list --label upstream-sync --state open --json number -q '.[0].number // empty')
+          if [ -n "$n" ]; then
+              gh issue comment "$n" --body-file /tmp/issue.md
+          else
+              gh issue create --title "Image build failed for $VERSION" --body-file /tmp/issue.md --label upstream-sync
+          fi

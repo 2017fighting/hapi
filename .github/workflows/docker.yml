@@ -1,0 +1,90 @@
+name: Build & publish Docker image
+
+# Publishes the upstream version currently merged into this branch.
+# Called by sync-upstream.yml after each upstream-tag merge (GITHUB_TOKEN pushes
+# don't trigger on:push workflows, so the caller invokes this directly with the
+# post-merge SHA), or manually via workflow_dispatch.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Upstream version to tag the image with (e.g. 0.29.0 — leading v is stripped)."
+        required: true
+      ref:
+        description: "Ref to build. Defaults to the current ref."
+        required: false
+  workflow_call:
+    inputs:
+      version:
+        description: "Upstream version (e.g. 0.29.0 — leading v is stripped)."
+        type: string
+        required: true
+      build-ref:
+        description: "Ref/SHA to check out (post-merge SHA from sync-upstream.yml)."
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # workflow_call: build-ref; workflow_dispatch: ref; else default.
+          ref: ${{ inputs.build-ref || inputs.ref }}
+
+      - name: Set up QEMU (for cross-arch builds)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Tag scheme mirrors the pre-overlay images (metadata-action semver shape):
+      # 0.29.0 + 0.29 + 0 + latest. GHCR paths stay lowercase via tr in the tag step.
+      - name: Compute image tags
+        id: tags
+        env:
+          VERSION: ${{ inputs.version }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          ver="${VERSION#v}"
+          if ! echo "$ver" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "Invalid version: '$ver' (expected X.Y.Z)" >&2
+              exit 1
+          fi
+          maj="${ver%%.*}"
+          rest="${ver#*.}"
+          min="${rest%%.*}"
+          repo="ghcr.io/$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')/hapi-hub"
+          {
+              echo "tags<<EOF"
+              echo "$repo:$ver"
+              echo "$repo:$maj.$min"
+              echo "$repo:$maj"
+              echo "$repo:latest"
+              echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push (multi-arch)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
