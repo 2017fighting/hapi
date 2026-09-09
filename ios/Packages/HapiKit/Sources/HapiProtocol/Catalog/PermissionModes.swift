@@ -95,6 +95,8 @@ extension AgentFlavor {
             return [.default, .auto, .plan, .bypassPermissions]
         case .opencode:
             return [.default, .plan, .yolo]
+        case .dsh:
+            return []
         case .agy:
             return [.requestReview, .alwaysProceed]
         case .cursor:

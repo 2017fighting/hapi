@@ -32,14 +32,14 @@
     <string name="pairing_confirm_switch">使用现有配对</string>
     <string name="pairing_confirm_repair">用新配对码重新配对</string>
     <string name="pairing_confirm_cancel">取消</string>
-    <string name="pairing_invalid_link">该配对链接无效或不完整。</string>
+    <string name="pairing_invalid_link">该配对链接无效、不完整，或未使用 HTTPS。</string>
     <string name="pairing_back">返回</string>
 
     <!-- Manual entry -->
     <string name="pairing_manual_title">手动配对</string>
     <string name="pairing_manual_hint">这两项信息可在 hub 启动时的终端里找到，也可在网页应用的“设置 → 伴侣应用配对”中查看。</string>
     <string name="pairing_hub_url_label">Hub 地址</string>
-    <string name="pairing_hub_url_placeholder">http://192.168.1.10:3006</string>
+    <string name="pairing_hub_url_placeholder">https://hub.example.com</string>
     <string name="pairing_token_label">访问令牌</string>
     <string name="pairing_token_placeholder">粘贴访问令牌</string>
     <string name="pairing_pair_button">配对</string>
@@ -47,7 +47,7 @@
     <!-- QR scan -->
     <string name="pairing_scan_title">扫描配对二维码</string>
     <string name="pairing_scan_prompt">将相机对准配对二维码</string>
-    <string name="pairing_scan_not_pairing_qr">这不是 HAPI 配对二维码。请扫描 hub 打印的两个二维码之一（伴侣应用或网页应用）。</string>
+    <string name="pairing_scan_not_pairing_qr">这不是有效的 HTTPS HAPI 配对二维码。请扫描 hub 打印的两个二维码之一（伴侣应用或网页应用）。</string>
     <string name="pairing_scan_again">重新扫描</string>
     <string name="pairing_scan_permission_rationale">扫描配对二维码需要相机权限。您也可以改用手动配对。</string>
     <string name="pairing_scan_grant_camera">授予相机权限</string>
@@ -71,6 +71,13 @@
     <string name="new_session_runner_spawn_error">Runner 上次启动错误：%1$s</string>
     <string name="new_session_directory">目录</string>
     <string name="new_session_directory_placeholder">/path/to/project</string>
+    <string name="new_session_browse">浏览目录</string>
+    <string name="directory_browser_choose_directory">选择目录</string>
+    <string name="directory_browser_up">前往上级目录</string>
+    <string name="directory_browser_refresh">刷新</string>
+    <string name="directory_browser_show_hidden">显示隐藏目录</string>
+    <string name="directory_browser_empty">没有子目录</string>
+    <string name="directory_browser_select_current">选择当前目录</string>
     <string name="new_session_recent_paths">最近路径</string>
     <string name="new_session_type">会话类型</string>
     <string name="new_session_type_simple">简单</string>
@@ -80,6 +87,8 @@
     <string name="new_session_worktree_name">工作树名称</string>
     <string name="new_session_worktree_name_placeholder">feature-x（可选）</string>
     <string name="new_session_agent">代理</string>
+    <string name="new_session_agent_availability_loading">正在检查已安装的代理…</string>
+    <string name="new_session_retry">重试</string>
     <string name="new_session_model">模型</string>
     <string name="new_session_effort">思考强度</string>
     <string name="new_session_reasoning_effort">推理强度</string>
@@ -493,7 +502,7 @@
     <string name="scratchlist_reject_budget">此笔记的附件容量已用完</string>
 
     <!-- Pairing errors (PairingViewModel semantic errors, B-M1d) -->
-    <string name="pairing_error_invalid_url">请输入有效的 hub 地址，例如 http://192.168.1.10:3006 或 https://hub.example.com。</string>
+    <string name="pairing_error_invalid_url">请输入有效的 HTTPS hub 地址，例如 https://hub.example.com。</string>
     <string name="pairing_error_empty_token">请输入 hub 显示的访问令牌。</string>
     <string name="pairing_error_token_rejected">Hub 拒绝了此访问令牌。Hub 轮换 CLI_API_TOKEN 后令牌会变化 — 请重新获取二维码或令牌后再试。</string>
     <string name="pairing_error_hub_gone">该 hub 已不在配对列表中。请在下方重新配对。</string>
@@ -514,4 +523,10 @@
     <string name="new_session_error_codex_models">加载 Codex 模型失败</string>
     <string name="new_session_error_models_detail">加载模型失败：%1$s</string>
     <string name="new_session_error_worktree_name">名称需要至少包含一个字母或数字</string>
+    <string name="new_session_error_directory_outside_workspace_roots">目录必须位于此机器配置的某个工作区根目录内。</string>
+    <string name="directory_browser_error">浏览目录失败</string>
+    <string name="new_session_error_agent_availability">检查已安装代理失败</string>
+    <string name="new_session_error_runner_upgrade_required">创建会话前，请升级并重启此机器上的 HAPI runner。</string>
+    <string name="new_session_error_no_available_agents">此机器上没有安装受支持的代理。</string>
+    <string name="new_session_error_selected_agent_unavailable">所选代理在此机器上不可用。</string>
 </resources>

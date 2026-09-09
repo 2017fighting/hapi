@@ -25,14 +25,14 @@
     <string name="pairing_confirm_switch">Use existing pairing</string>
     <string name="pairing_confirm_repair">Re-pair with the new code</string>
     <string name="pairing_confirm_cancel">Cancel</string>
-    <string name="pairing_invalid_link">That pairing link is invalid or incomplete.</string>
+    <string name="pairing_invalid_link">That pairing link is invalid, incomplete, or does not use HTTPS.</string>
     <string name="pairing_back">Back</string>
 
     <!-- Manual entry -->
     <string name="pairing_manual_title">Manual pairing</string>
     <string name="pairing_manual_hint">Find both values in the hub terminal on startup, or in the web app under Settings → Companion pairing.</string>
     <string name="pairing_hub_url_label">Hub URL</string>
-    <string name="pairing_hub_url_placeholder">http://192.168.1.10:3006</string>
+    <string name="pairing_hub_url_placeholder">https://hub.example.com</string>
     <string name="pairing_token_label">Access token</string>
     <string name="pairing_token_placeholder">Paste the access token</string>
     <string name="pairing_pair_button">Pair</string>
@@ -40,7 +40,7 @@
     <!-- QR scan -->
     <string name="pairing_scan_title">Scan pairing QR</string>
     <string name="pairing_scan_prompt">Point the camera at the pairing QR code</string>
-    <string name="pairing_scan_not_pairing_qr">That QR code is not a HAPI pairing code. Scan one of the two QR codes your hub prints (Companion app or Web app).</string>
+    <string name="pairing_scan_not_pairing_qr">That QR code is not a valid HTTPS HAPI pairing code. Scan one of the two QR codes your hub prints (Companion app or Web app).</string>
     <string name="pairing_scan_again">Scan again</string>
     <string name="pairing_scan_permission_rationale">Camera access is needed to scan the pairing QR code. You can also pair manually instead.</string>
     <string name="pairing_scan_grant_camera">Grant camera access</string>
@@ -64,6 +64,13 @@
     <string name="new_session_runner_spawn_error">Runner last spawn error: %1$s</string>
     <string name="new_session_directory">Directory</string>
     <string name="new_session_directory_placeholder">/path/to/project</string>
+    <string name="new_session_browse">Browse directories</string>
+    <string name="directory_browser_choose_directory">Choose directory</string>
+    <string name="directory_browser_up">Go to parent directory</string>
+    <string name="directory_browser_refresh">Refresh</string>
+    <string name="directory_browser_show_hidden">Show hidden</string>
+    <string name="directory_browser_empty">No subdirectories</string>
+    <string name="directory_browser_select_current">Select current directory</string>
     <string name="new_session_recent_paths">Recent paths</string>
     <string name="new_session_type">Session type</string>
     <string name="new_session_type_simple">Simple</string>
@@ -73,6 +80,8 @@
     <string name="new_session_worktree_name">Worktree name</string>
     <string name="new_session_worktree_name_placeholder">feature-x (optional)</string>
     <string name="new_session_agent">Agent</string>
+    <string name="new_session_agent_availability_loading">Checking installed Agents…</string>
+    <string name="new_session_retry">Retry</string>
     <string name="new_session_model">Model</string>
     <string name="new_session_effort">Effort</string>
     <string name="new_session_reasoning_effort">Reasoning effort</string>
@@ -486,7 +495,7 @@
     <string name="scratchlist_reject_budget">This note’s attachment budget is used up</string>
 
     <!-- Pairing errors (PairingViewModel semantic errors, B-M1d) -->
-    <string name="pairing_error_invalid_url">Enter a valid hub URL, like http://192.168.1.10:3006 or https://hub.example.com.</string>
+    <string name="pairing_error_invalid_url">Enter a valid HTTPS hub URL, like https://hub.example.com.</string>
     <string name="pairing_error_empty_token">Enter the access token shown by your hub.</string>
     <string name="pairing_error_token_rejected">The hub rejected this access token. Tokens change when the hub rotates its CLI_API_TOKEN — grab a fresh QR code or token and try again.</string>
     <string name="pairing_error_hub_gone">That hub is no longer paired. Pair it again below.</string>
@@ -507,4 +516,10 @@
     <string name="new_session_error_codex_models">Failed to load Codex models</string>
     <string name="new_session_error_models_detail">Failed to load models: %1$s</string>
     <string name="new_session_error_worktree_name">Name needs at least one letter or digit</string>
+    <string name="new_session_error_directory_outside_workspace_roots">Directory must be inside one of this machine’s workspace roots.</string>
+    <string name="directory_browser_error">Failed to browse directories</string>
+    <string name="new_session_error_agent_availability">Failed to check installed Agents</string>
+    <string name="new_session_error_runner_upgrade_required">Upgrade and restart this machine’s HAPI runner before creating sessions.</string>
+    <string name="new_session_error_no_available_agents">No supported Agents are installed on this machine.</string>
+    <string name="new_session_error_selected_agent_unavailable">The selected Agent is not available on this machine.</string>
 </resources>

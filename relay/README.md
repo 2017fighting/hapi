@@ -13,7 +13,7 @@ centrally. A hub that does not configure its own APNs credentials POSTs its
 to Apple.
 
 Hubs that *do* provision their own Apple developer account + APNs key talk
-to APNs directly (see `hub/src/apns/`, work package P1) and never touch this
+to APNs directly (see `hub/src/push-ios/`) and never touch this
 service.
 
 ## Threat model and privacy
@@ -92,7 +92,7 @@ bun install
 RELAY_APNS_KEY_P8_PATH=/path/AuthKey_XXXXXXXXXX.p8 \
 RELAY_APNS_KEY_ID=XXXXXXXXXX \
 RELAY_APNS_TEAM_ID=YYYYYYYYYY \
-RELAY_APNS_BUNDLE_ID=app.hapi.ios \
+RELAY_APNS_BUNDLE_ID=run.hapi.app \
 bun run relay/src/index.ts
 ```
 
@@ -114,29 +114,68 @@ Any container host works — the relay is a single stateless process (rate
 limits are in-memory, so run one instance, which is plenty: it only moves
 ~4 KB messages).
 
+Use the prebuilt image `ghcr.io/tiann/hapi-push-relay`, available for Linux
+AMD64 and ARM64. The server needs only Docker and the APNs key/configuration;
+no HAPI source checkout or Bun installation is required.
+
 ```sh
-docker build -t hapi-push-relay relay/
-docker run -d --name hapi-push-relay \
-    -p 8790:8790 \
+docker pull ghcr.io/tiann/hapi-push-relay:latest
+docker run -d --name hapi-push-relay --restart unless-stopped \
+    -p 127.0.0.1:8790:8790 \
     -v /secrets/AuthKey_XXXXXXXXXX.p8:/keys/apns.p8:ro \
     -e RELAY_APNS_KEY_P8_PATH=/keys/apns.p8 \
     -e RELAY_APNS_KEY_ID=XXXXXXXXXX \
     -e RELAY_APNS_TEAM_ID=YYYYYYYYYY \
-    -e RELAY_APNS_BUNDLE_ID=app.hapi.ios \
-    hapi-push-relay
+    -e RELAY_APNS_BUNDLE_ID=run.hapi.app \
+    -e RELAY_APNS_ENV=production \
+    ghcr.io/tiann/hapi-push-relay:latest
 ```
 
-Terminate TLS in front of it (Caddy, nginx, or your platform's ingress) —
-hubs POST envelopes over the public internet. If the proxy is the only way
-in, set `RELAY_TRUST_PROXY=1` so per-IP rate limiting sees real client IPs.
+The `.p8` file must be readable by the container's `bun` user (UID 1000).
+Use `production` for TestFlight/App Store and `sandbox` for development-signed
+apps. For a pinned deployment, replace `latest` with a published
+`sha-<full-commit-sha>` tag or image digest from the workflow output.
+
+Terminate TLS in front of it (for example, Caddy on the same host) — hubs POST
+envelopes over the public internet. If the proxy overwrites `X-Forwarded-For`
+and is the only way in, set `RELAY_TRUST_PROXY=1` so per-IP rate limiting sees
+real client IPs. The example exposes HTTP on host loopback only.
+
+For deployment alongside tunwg on the same server, use the
+[tunwg + Caddy + Push Compose example](https://github.com/tiann/tunwg/tree/master/examples/push-relay).
+It shares public TCP 443 and preserves client IPs for rate limiting.
+
+Check readiness with `curl -fsS http://127.0.0.1:8790/health`. This checks the
+service, not delivery through APNs; verify credentials with an iOS notification.
+
+### Publishing images
+
+The [Push Relay Image workflow](../.github/workflows/push-relay-image.yml)
+runs the relay type check and tests, then builds both architectures. Pushes to
+`main` affecting `relay/`, the workflow, or its dependency/type-check inputs
+publish `latest` and `sha-<full-commit-sha>`. Pull requests build without
+publishing. To publish manually, run **Actions → Push Relay Image → Run
+workflow** on `main`; dispatches on other branches only validate and build.
+
+Publishing uses the repository's `GITHUB_TOKEN` with `packages: write`; no
+registry credential needs to be added. After the first successful run, set
+the `hapi-push-relay` package visibility to **Public** in GitHub Packages so
+servers can pull without logging in. Forks publish under their own owner.
+
+For local development, building from source remains available from the repo
+root:
+
+```sh
+docker build -t hapi-push-relay:local relay/
+```
 
 ## Pointing a hub at the relay
 
 A hub without its own APNs credentials sends iOS pushes through the relay
 configured by `HAPI_PUSH_RELAY_URL` (e.g.
 `HAPI_PUSH_RELAY_URL=https://push.example.com`). Hubs with
-self-configured APNs keys ignore the relay entirely. See `hub/src/apns/`
-(P1) for the hub-side client that speaks the `POST /v1/push` contract above.
+self-configured APNs keys ignore the relay entirely. See `hub/src/push-ios/`
+for the hub-side client that speaks the `POST /v1/push` contract above.
 
 ## Implementation notes
 
@@ -145,7 +184,7 @@ self-configured APNs keys ignore the relay entirely. See `hub/src/apns/`
   the full wire shape, including collapse-id truncation and error mapping).
   The transport sits behind the `ApnsClient` interface in `src/apns.ts` so
   it can be swapped if a Bun upgrade ever regresses.
-- The ES256 JWT signing (jose) is deliberately duplicated with the hub's P1
+- The ES256 JWT signing (jose) is deliberately duplicated with the hub's APNs
   client: the relay must stay standalone and never import hub code.
 - Run the tests with `bun test` from `relay/`, or `bun run test:relay` from
   the repo root.

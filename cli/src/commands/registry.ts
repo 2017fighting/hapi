@@ -3,6 +3,7 @@ import { agyCommand } from './agy'
 import { authCommand } from './auth'
 import { claudeCommand } from './claude'
 import { codexCommand } from './codex'
+import { dshCommand } from './dsh'
 import { cursorCommand } from './cursor'
 import { connectCommand } from './connect'
 import { runnerCommand } from './runner'
@@ -15,6 +16,7 @@ import { opencodeCommand } from './opencode'
 import { piCommand } from './pi'
 import { hookForwarderCommand } from './hookForwarder'
 import { mcpCommand } from './mcp'
+import { mcpProxyCommand } from './mcpProxy'
 import { notifyCommand } from './notify'
 import { hubCommand } from './hub'
 import { pingPeerCommand } from './pingPeer'
@@ -42,6 +44,7 @@ const COMMANDS: CommandDefinition[] = [
     authCommand,
     connectCommand,
     codexCommand,
+    dshCommand,
     cursorCommand,
     removedGeminiCommand,
     grokCommand,
@@ -50,6 +53,7 @@ const COMMANDS: CommandDefinition[] = [
     opencodeCommand,
     piCommand,
     mcpCommand,
+    mcpProxyCommand,
     hubCommand,
     { ...hubCommand, name: 'server' },
     hookForwarderCommand,

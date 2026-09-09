@@ -36,6 +36,7 @@ coverage/
 
 # Claude local settings
 .claude/settings.local.json
+.claude/worktrees/
 localdocs/
 execplan/
 

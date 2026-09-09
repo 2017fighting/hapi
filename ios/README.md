@@ -719,7 +719,7 @@ for push entitlements:
   `GENERATE_INFOPLIST_FILE` + `INFOPLIST_KEY_*` build settings. The modern
   out-of-process `PhotosPicker` needs **no** photo-library permission, so
   there is no `NSPhotoLibraryUsageDescription`.
-- `run.hapi.companion` is the bundle id; signing is `Automatic` and CI builds
+- `run.hapi.app` is the bundle id; signing is `Automatic` and CI builds
   with `CODE_SIGNING_ALLOWED=NO`.
 - CI uses the runner's default Xcode; each job prints `xcodebuild -version`
   first so failures are attributable to a toolchain bump.

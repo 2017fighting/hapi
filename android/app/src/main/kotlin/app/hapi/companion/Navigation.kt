@@ -830,4 +830,10 @@ private fun newSessionStrings(context: Context) = NewSessionStrings(
     codexModelsFailed = context.getString(R.string.new_session_error_codex_models),
     modelsFailedDetail = context.getString(R.string.new_session_error_models_detail),
     worktreeNameInvalid = context.getString(R.string.new_session_error_worktree_name),
+    directoryOutsideWorkspaceRoots = context.getString(R.string.new_session_error_directory_outside_workspace_roots),
+    directoryLookupFailed = context.getString(R.string.directory_browser_error),
+    agentAvailabilityFailed = context.getString(R.string.new_session_error_agent_availability),
+    runnerUpgradeRequired = context.getString(R.string.new_session_error_runner_upgrade_required),
+    noAvailableAgents = context.getString(R.string.new_session_error_no_available_agents),
+    selectedAgentUnavailable = context.getString(R.string.new_session_error_selected_agent_unavailable),
 )

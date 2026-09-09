@@ -30,6 +30,8 @@ import { resolveWorkspaceRoots } from '@/utils/workspaceRoot';
 import { hashRunnerCliApiToken, hashRunnerExtraHeaders } from './runnerIdentity';
 import { scheduleCursorModelsPrewarm } from '@/modules/common/cursorModelsPrewarm';
 import { isLinkedGitWorktree } from '@/utils/isLinkedGitWorktree';
+import { agentUnavailableMessage, getAgentAvailability } from '@/agent/agentAvailability';
+import { copyCodexConfigFile, resolveCodexHome } from '@/codex/utils/codexHome';
 
 /**
  * Deduplicates a preallocated HAPI-row spawn only while its child is alive.
@@ -499,8 +501,27 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
 
       const { directory, sessionId, machineId, approvedNewDirectoryCreation = true } = options;
       const agent = options.agent ?? 'claude';
-      if (agent === 'gemini') {
-        throw new Error('Gemini CLI is no longer supported and cannot be launched (Google sunset the consumer Gemini CLI on 2026-06-18). Existing Gemini sessions remain viewable in the web UI.');
+      const availability = getAgentAvailability(agent);
+      if (!availability.available) {
+        const errorMessage = agentUnavailableMessage(availability);
+        logger.debug(`[RUNNER RUN] Agent preflight failed: ${errorMessage}`);
+        reportSpawnOutcomeToHub?.({
+          type: 'error',
+          details: { message: errorMessage }
+        });
+        return {
+          type: 'error',
+          errorMessage,
+          code: 'agent_unavailable',
+          agent
+        };
+      }
+      if (options.validateDirectory && !(await options.validateDirectory(directory))) {
+        return {
+          type: 'error',
+          errorMessage: 'Directory is outside this machine\'s workspace roots',
+          code: 'outside_workspace_roots'
+        };
       }
       const yolo = options.yolo === true;
       const sessionType = options.sessionType ?? 'simple';
@@ -509,6 +530,21 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
       let spawnDirectory = directory;
       let worktreeInfo: WorktreeInfo | null = null;
       let happyProcess: ReturnType<typeof spawnHappyCLI> | null = null;
+      let copiedCodexConfigPath: string | null = null;
+
+      const cleanupCopiedCodexConfig = async (reason: string): Promise<void> => {
+        const configPath = copiedCodexConfigPath;
+        copiedCodexConfigPath = null;
+        if (!configPath) {
+          return;
+        }
+        try {
+          await fs.rm(configPath, { force: true });
+          logger.debug(`[RUNNER RUN] Removed temporary Codex config after ${reason}`);
+        } catch (error) {
+          logger.debug(`[RUNNER RUN] Failed to remove temporary Codex config after ${reason}`, error);
+        }
+      };
 
       if (sessionType === 'simple') {
         const validation = await validateWorkspaceDirectory(directory, {
@@ -545,6 +581,17 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
             errorMessage: `Worktree sessions require an existing Git repository. Directory not found: ${directory}`
           };
         }
+      }
+
+      // Re-check after mkdir/access so a newly materialized path or concurrent
+      // symlink swap cannot escape the roots checked by the machine RPC layer.
+      if (options.validateDirectory && !(await options.validateDirectory(directory))) {
+        logger.debug(`[RUNNER RUN] Workspace directory escaped roots during validation: ${directory}`);
+        return {
+          type: 'error',
+          errorMessage: 'Directory is outside this machine\'s workspace roots',
+          code: 'outside_workspace_roots'
+        };
       }
 
       if (sessionType === 'worktree') {
@@ -616,6 +663,9 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
             // Create a temporary directory for Codex
             const codexHomeDir = await fs.mkdtemp(join(os.tmpdir(), 'hapi-codex-'));
 
+            // Preserve user MCP/config settings while keeping token auth isolated.
+            copiedCodexConfigPath = await copyCodexConfigFile(resolveCodexHome(), codexHomeDir);
+
             // Write the token to the temporary directory
             await fs.writeFile(join(codexHomeDir, 'auth.json'), options.token);
 
@@ -671,6 +721,9 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
             ...extraEnv
           }
         });
+        happyProcess.once('exit', () => {
+          void cleanupCopiedCodexConfig('child-exit');
+        });
 
         happyProcess.stderr?.on('data', (data) => {
           stderrTail = appendTail(stderrTail, data);
@@ -697,6 +750,7 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
               message: errorMessage
             }
           });
+          await cleanupCopiedCodexConfig('no-pid');
           await maybeCleanupWorktree('no-pid');
           return {
             type: 'error',
@@ -822,7 +876,11 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
             // (the actual claude/codex agent) are also reaped, and that
             // SIGTERM → SIGKILL escalation kicks in if needed.
             if (happyProcess) {
-              void killProcessByChildProcess(happyProcess);
+              void killProcessByChildProcess(happyProcess).finally(() => {
+                void cleanupCopiedCodexConfig('webhook-timeout');
+              });
+            } else {
+              void cleanupCopiedCodexConfig('webhook-timeout');
             }
 
             // If this was a worktree session, the worktree can only be
@@ -879,6 +937,7 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         logger.debug('[RUNNER RUN] Failed to spawn session:', error);
+        await cleanupCopiedCodexConfig('exception');
         await maybeCleanupWorktree('exception');
         reportSpawnOutcomeToHub?.({
           type: 'error',
@@ -1159,7 +1218,7 @@ export async function startRunner(options: { workspaceRoots?: string[] } = {}): 
     // regardless of the verbose/quiet logger setting.
     console.log('');
     console.log('Hapi runner started.');
-    console.log(`  Workspace roots: ${workspaceRoots?.join(', ') ?? '(not set — browse disabled; pass --workspace-root to enable)'}`);
+    console.log(`  Workspace roots: ${workspaceRoots?.join(', ') ?? '(not set — browsing is limited to home)'}`);
     console.log(`  Hub URL:        ${configuration.apiUrl}`);
     console.log(`  Machine ID:     ${machine.id}`);
     console.log(`  Control port:   ${controlPort}`);
@@ -1481,11 +1540,13 @@ export function buildCliArgs(
             ? 'copilot'
             : agent === 'opencode'
             ? 'opencode'
-            : agent === 'pi'
-              ? 'pi'
-              : agent === 'agy'
-                ? 'agy'
-                : 'claude';
+            : agent === 'dsh'
+              ? 'dsh'
+              : agent === 'pi'
+                ? 'pi'
+                : agent === 'agy'
+                  ? 'agy'
+                  : 'claude';
   const args = [agentCommand];
   if (options.resumeSessionId) {
     if (agent === 'codex') {
@@ -1512,6 +1573,7 @@ export function buildCliArgs(
   if (agent === 'codex' || agent === 'cursor' || agent === 'pi'
       || agent === 'opencode'
       || agent === 'agy'
+      || agent === 'dsh'
       || (agentCommand === 'claude' && options.forkSession)) {
     const existingSessionId = options.existingSessionId ?? options.sessionId;
     if (existingSessionId) {
@@ -1545,7 +1607,7 @@ export function buildCliArgs(
   }
   // Pi RPC mode has no permission switching; never pass these flags to it
   // (the Pi parser rejects --permission-mode and ignores --yolo).
-  if (agent !== 'pi') {
+  if (agent !== 'pi' && agent !== 'dsh') {
     if (options.permissionMode && (PERMISSION_MODES as readonly string[]).includes(options.permissionMode)) {
       args.push('--permission-mode', options.permissionMode);
     } else if (yolo) {

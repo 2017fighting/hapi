@@ -75,25 +75,23 @@ lands on the session UI. Three entry points:
 3. **Manual entry** — hub URL + access token, for hubs started without
    `--relay`.
 
-### Pairing against a local dev hub
+### Pairing against a development hub
 
 ```sh
-# repo root: start the hub (prints the access token + QR codes)
-bun run dev
+# Start a hub with the built-in HTTPS relay (prints the access token + QR codes).
+hapi hub --relay
 
-# emulator: the host machine is 10.0.2.2
-#   Hub URL:       http://10.0.2.2:3006
-#   Access token:  from the hub terminal / hub settings.json (CLI_API_TOKEN)
-# physical device: use the machine's LAN IP, e.g. http://192.168.1.10:3006
+# Use the printed https:// URL. For a source-tree `bun run dev` hub, put an
+# HTTPS reverse proxy or tunnel in front of localhost:3006 first.
 adb shell am start -a android.intent.action.VIEW \
-  -d "hapicompanion://bind?hub=http%3A%2F%2F10.0.2.2%3A3006&code=<accessToken>"  # optional: exercises the deep link
+  -d "hapicompanion://bind?hub=https%3A%2F%2Fhub.example.com&code=<accessToken>"  # optional: exercises the deep link
 ```
 
-Plain-`http` LAN/emulator hubs work in all build types: the manifest opts in
-to cleartext traffic (`android:usesCleartextTraffic="true"`), because
-self-hosted LAN hubs are the primary pairing target and Android cannot scope
-the exemption to local addresses only. Sign-out (home → Sign out) deletes the
-stored credentials for that hub and drops it from the roster.
+The app rejects plain-`http` hub URLs in manual entry, deep links, QR codes,
+and restored hub state. The manifest also sets
+`android:usesCleartextTraffic="false"`; there is no debug or LAN exemption.
+Sign-out (home → Sign out) deletes the stored credentials for that hub and
+drops it from the roster.
 
 ## Milestones (track B of the native-clients plan)
 
@@ -181,8 +179,9 @@ To enable push:
    with your `applicationId` (default `run.hapi.companion`), download
    `google-services.json` into `android/app/`, and rebuild.
 3. **Hub side**: point the hub at the *same* Firebase project —
-   `FCM_SERVICE_ACCOUNT_PATH` + `FCM_PROJECT_ID`
-   (`docs/api/native-companion-contract.md`). The device registers itself
+   `FCM_SERVICE_ACCOUNT_PATH` (or `fcmServiceAccountPath` in
+   `~/.hapi/settings.json`; the project id comes from the JSON itself, see
+   `docs/api/native-companion-contract.md`). The device registers itself
    with every paired hub (`POST /api/devices/register`) on pairing, app
    start, and token rotation, and unregisters on sign-out.
 
@@ -195,3 +194,31 @@ the session against the active hub.
 Planned for v1.x: runtime `FirebaseOptions` handed out by the hub, so
 self-builds get push without baking a config into the APK. That lands
 entirely behind the existing `app/.../push/PushBinding.kt` seam.
+
+## Release signing
+
+Same philosophy as Firebase: the repo carries no secrets and builds green
+without them. `:app:bundleRelease` produces an **unsigned** AAB unless an
+upload key is configured via gradle properties (user-global
+`~/.gradle/gradle.properties`), environment variables (CI secrets), or
+`android/local.properties` (gitignored; same property names — the
+conventional machine-local home, loaded explicitly since it is not part
+of gradle's own property chain):
+
+| gradle property | env | meaning |
+|---|---|---|
+| `hapiUploadKeystore` | `HAPI_UPLOAD_KEYSTORE` | keystore path (`~` ok) |
+| `hapiUploadKeystorePassword` | `HAPI_UPLOAD_KEYSTORE_PASSWORD` | store password |
+| `hapiUploadKeyAlias` | `HAPI_UPLOAD_KEY_ALIAS` | default `upload` |
+| `hapiUploadKeyPassword` | `HAPI_UPLOAD_KEY_PASSWORD` | default: store password |
+
+This is an **upload key** for Play App Signing (Google holds the actual
+distribution key, so a lost upload key is resettable in Play Console).
+Generate one with:
+
+```bash
+keytool -genkeypair -v -keystore ~/.hapi/upload.keystore -alias upload \
+  -keyalg RSA -keysize 2048 -validity 10950
+```
+
+Keystores never live in the repo (`*.keystore` / `*.jks` are gitignored).

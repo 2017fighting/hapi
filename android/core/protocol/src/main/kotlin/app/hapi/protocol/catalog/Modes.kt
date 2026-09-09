@@ -87,6 +87,7 @@ object PermissionModes {
         "copilot" -> CODEX
         "grok" -> GROK
         "opencode" -> OPENCODE
+        "dsh" -> emptyList()
         "agy" -> AGY
         "cursor" -> CURSOR
         "pi" -> emptyList()

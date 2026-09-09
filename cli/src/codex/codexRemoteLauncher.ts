@@ -16,7 +16,18 @@ import { hasCodexCliOverrides } from './utils/codexCliOverrides';
 import { AppServerEventConverter } from './utils/appServerEventConverter';
 import { registerGeneratedImageFromPath } from '@/modules/common/generatedImages';
 import { registerAppServerPermissionHandlers } from './utils/appServerPermissionAdapter';
-import { buildThreadStartParams, buildTurnStartParams } from './utils/appServerConfig';
+import {
+    buildThreadStartParams,
+    withoutCodexModelOverrides,
+    buildTurnStartParams,
+    type CodexContextManagementConfig
+} from './utils/appServerConfig';
+import {
+    extractCodexMcpServers,
+    mergeCodexMcpServers,
+    type CodexMcpServersConfig
+} from './utils/codexMcpServers';
+import { prepareCodexMcpServers } from './utils/codexMcpProxy';
 import type { SkillMetadata, ThreadGoal, ThreadGoalStatus } from './appServerTypes';
 import { shouldIgnoreTerminalEvent } from './utils/terminalEventGuard';
 import { parseCodexSpecialCommand } from './codexSpecialCommands';
@@ -28,6 +39,7 @@ import {
     type RemoteLauncherExitReason
 } from '@/modules/common/remote/RemoteLauncherBase';
 import { CodexConversationHistory } from './conversationHistory';
+import { LunaReserve } from './utils/lunaReserve';
 
 
 
@@ -228,6 +240,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
     private reasoningProcessor: ReasoningProcessor | null = null;
     private diffProcessor: DiffProcessor | null = null;
     private happyServer: HappyServer | null = null;
+    private mcpProxyCleanup: (() => Promise<void>) | null = null;
     private abortController: AbortController = new AbortController();
     /** Invalidates queued-message steer handlers after abort or cleanup. */
     private steerEpoch = 0;
@@ -347,6 +360,9 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             onSwitchToLocal: () => this.handleSwitchFromUi()
         });
     }
+
+    private lunaReserve: LunaReserve | null = null;
+    private usageTimer: ReturnType<typeof setInterval> | null = null;
 
     protected async runMainLoop(): Promise<void> {
         const session = this.session;
@@ -1851,6 +1867,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             }
         };
 
+        let hasThread = false;
         let activeMessage: QueuedMessage | null = null;
         let sameThreadRetryAttempt = 0;
         let sameThreadCompactAttempt = 0;
@@ -1905,6 +1922,9 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             if (session.thinking) session.onThinkingChange(false);
             recoveryInFlight = false;
             activeMessage = null;
+            hasThread = false;
+            this.lunaReserve?.detach();
+            this.currentThreadId = null;
             this.currentTurnId = null;
             wakeLoop();
         });
@@ -2036,6 +2056,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     experimentalApi: true
                 }
             });
+            await this.lunaReserve?.initialize();
         };
 
         // Returns 'accepted' when the thread contains the steered user message
@@ -2899,7 +2920,9 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             const isThreadStatusFailure = msgType === 'task_failed' && msg.terminal_source === 'thread_status';
             const error = msgType === 'task_failed' ? asString(msg.error) : null;
             const explicitlyNonRetryable = msgType === 'task_failed'
-                && (msg.retryable === false || isPolicyBlockedCodexFailure(msg, error));
+                && (msg.retryable === false || isPolicyBlockedCodexFailure(msg, error)
+                    || msg.codex_error_info === 'usageLimitExceeded'
+                    || /usage limit|rate limit|quota/i.test(error ?? ''));
 
             if (deferredThreadStatusFailure && isTerminalEvent && !isThreadStatusFailure) {
                 const sameThread = !eventThreadId || eventThreadId === deferredThreadStatusFailure.threadId;
@@ -3230,6 +3253,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 const threadId = eventThreadId ?? this.currentThreadId;
                 session.sendAgentMessage({
                     ...addCodexEventScope(msg, 'parent', threadId),
+                    flavor: 'codex',
                     model: asString(msg.model) ?? usageModel,
                     id: randomUUID()
                 });
@@ -3480,7 +3504,37 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             }
         };
 
+        const reserve = new LunaReserve(appServerClient, (model, effort, serviceTier) => {
+            session.setModel(model);
+            session.setModelReasoningEffort(effort);
+            if (serviceTier !== undefined) session.setServiceTier(serviceTier);
+            session.pushKeepAlive();
+        }, (codexUsage) => {
+            session.client.updateAgentState(state => ({ ...state, codexUsage }));
+        }, message => session.sendSessionEvent({ type: 'message', message }));
+        this.lunaReserve = reserve;
+        const currentMode = (): EnhancedMode => ({
+            permissionMode: 'default',
+            model: session.getModel() ?? undefined,
+            modelReasoningEffort: session.getModelReasoningEffort() ?? undefined,
+            collaborationMode: session.getCollaborationMode() ?? 'default',
+            serviceTier: session.getServiceTier()
+        });
+        const refreshUsage = () => reserve.refresh(currentMode(), () => !turnInFlight && !this.shouldExit);
+
         appServerClient.setNotificationHandler((method, params) => {
+            if (method === 'account/rateLimits/updated' || method === 'account/updated') {
+                reserve.invalidate();
+                void refreshUsage();
+            }
+            if (method === 'thread/settings/updated') {
+                const record = asRecord(params);
+                const threadId = asString(record?.threadId);
+                if (threadId) reserve.onSettings(threadId, record?.threadSettings);
+            }
+            if (method === 'error' || method === 'turn/completed') {
+                reserve.invalidate();
+            }
             if (method === 'skills/changed') {
                 void refreshNativeSkills(true).catch((error) => {
                     logger.debug(`[Codex] failed to refresh skills: ${errorMessage(error)}`);
@@ -3510,6 +3564,9 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     });
                 }
             }
+            if (method === 'error' || method === 'turn/completed') {
+                void (codexEventQueue ?? Promise.resolve()).then(refreshUsage);
+            }
         });
 
         appServerClient.setStderrHandler((text) => {
@@ -3524,7 +3581,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             failPendingAgentStartsForSpawnArgumentError(spawnAgentError);
         });
 
-        const { server: happyServer, mcpServers } = await buildHapiMcpBridge(session.client, {
+        const { server: happyServer, mcpServers: hapiMcpServers } = await buildHapiMcpBridge(session.client, {
             // In app-server/collab mode, child agents share this MCP bridge.
             // If the MCP handler writes the title directly, child title calls
             // leak into the parent HAPI session. Defer the side effect until
@@ -3533,6 +3590,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             emitTitleSummary: false
         });
         this.happyServer = happyServer;
+        let mcpServers: CodexMcpServersConfig = hapiMcpServers;
 
         this.setupAbortHandlers(session.client.rpcHandlerManager, {
             onAbort: () => this.handleAbort(),
@@ -3565,6 +3623,51 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 experimentalApi: true
             }
         });
+
+        await reserve.initialize();
+        this.usageTimer = setInterval(() => { void refreshUsage(); }, 60_000);
+        this.usageTimer.unref();
+
+        let contextManagementConfig: CodexContextManagementConfig | undefined;
+        try {
+            const effectiveConfig = (await appServerClient.readConfig({
+                cwd: session.path,
+                includeLayers: false
+            })).config;
+            try {
+                const userMcpServers = extractCodexMcpServers(effectiveConfig);
+                const preparedMcpServers = await prepareCodexMcpServers(userMcpServers);
+                this.mcpProxyCleanup = preparedMcpServers.cleanup;
+                mcpServers = mergeCodexMcpServers(preparedMcpServers.servers, hapiMcpServers);
+                if (Object.keys(userMcpServers).length > 0) {
+                    logger.debug(`[Codex] Loaded ${Object.keys(userMcpServers).length} user MCP server(s)`);
+                }
+                if (preparedMcpServers.proxiedServerNames.length > 0) {
+                    logger.debug(
+                        `[Codex] Added stdio compatibility proxy for ${preparedMcpServers.proxiedServerNames.length} Windows MCP server(s)`
+                    );
+                }
+            } catch (error) {
+                logger.warn(`[Codex] Failed to merge user MCP servers; using HAPI bridge only: ${errorMessage(error)}`);
+            }
+            const modelContextWindow = effectiveConfig.model_context_window;
+            const modelAutoCompactTokenLimit = effectiveConfig.model_auto_compact_token_limit;
+            contextManagementConfig = {
+                ...(typeof modelContextWindow === 'number' && Number.isInteger(modelContextWindow) && modelContextWindow > 0
+                    ? { modelContextWindow }
+                    : {}),
+                ...(typeof modelAutoCompactTokenLimit === 'number'
+                    && Number.isInteger(modelAutoCompactTokenLimit)
+                    && modelAutoCompactTokenLimit > 0
+                    ? { modelAutoCompactTokenLimit }
+                    : {})
+            };
+            if (Object.keys(contextManagementConfig).length === 0) {
+                contextManagementConfig = undefined;
+            }
+        } catch (error) {
+            logger.debug('[Codex] Failed to read effective context management config; using app-server defaults', error);
+        }
 
         const publishConversationHistoryCapabilities = async () => {
             const conversationHistory = this.conversationHistory.getCapabilitiesForMetadata()?.conversationHistory
@@ -3629,7 +3732,6 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             logger.debug(`[Codex] collaborationMode/list failed: ${errorMessage(error)}`);
         }
 
-        let hasThread = false;
         let pending: QueuedMessage | null = null;
         let suppressReadyForAdminCommand = false;
 
@@ -3716,13 +3818,14 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 cwd: session.path,
                 mode,
                 mcpServers,
-                cliOverrides: session.codexCliOverrides
+                cliOverrides: session.codexCliOverrides,
+                contextManagementConfig
             });
 
             try {
                 const resumeResponse = await appServerClient.resumeThread({
                     threadId: resumeCandidate,
-                    ...threadParams
+                    ...withoutCodexModelOverrides(threadParams)
                 }, {
                     signal: this.abortController.signal
                 });
@@ -3730,6 +3833,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 const resumeThread = resumeRecord ? asRecord(resumeRecord.thread) : null;
                 const threadId = asString(resumeThread?.id) ?? resumeCandidate;
                 applyResolvedModel(resumeRecord?.model);
+                reserve.attach(threadId, resumeResponse);
                 this.currentThreadId = threadId;
                 this.conversationHistory.setThreadId(threadId);
                 void this.conversationHistory.probeCapabilities().catch(() => {});
@@ -3767,7 +3871,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             }
         };
 
-        const ensureThreadForGoal = async (mode: EnhancedMode): Promise<string | null> => {
+        const ensureThread = async (mode: EnhancedMode): Promise<string | null> => {
             if (this.currentThreadId && this.currentThreadId !== invalidThreadId) {
                 hasThread = true;
                 return this.currentThreadId;
@@ -3781,12 +3885,13 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     cwd: session.path,
                     mode,
                     mcpServers,
-                    cliOverrides: session.codexCliOverrides
+                    cliOverrides: session.codexCliOverrides,
+                    contextManagementConfig
                 });
                 try {
                     const resumeResponse = await appServerClient.resumeThread({
                         threadId: resumeCandidate,
-                        ...threadParams
+                        ...withoutCodexModelOverrides(threadParams)
                     }, {
                         signal: this.abortController.signal
                     });
@@ -3794,6 +3899,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     const resumeThread = resumeRecord ? asRecord(resumeRecord.thread) : null;
                     const threadId = asString(resumeThread?.id) ?? resumeCandidate;
                     applyResolvedModel(resumeRecord?.model);
+                    reserve.attach(threadId, resumeResponse);
                     this.currentThreadId = threadId;
                     this.conversationHistory.setThreadId(threadId);
                     void this.conversationHistory.probeCapabilities().catch(() => {});
@@ -3801,8 +3907,8 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     hasThread = true;
                     return threadId;
                 } catch (error) {
-                    logger.warn(`[Codex] Failed to resume app-server thread ${resumeCandidate} for /goal`, error);
-                    sendVisibleStatus(`Goal failed: Codex conversation ${resumeCandidate} could not be resumed`);
+                    logger.warn(`[Codex] Failed to resume app-server thread ${resumeCandidate}`, error);
+                    sendVisibleStatus(`Codex conversation ${resumeCandidate} could not be resumed`);
                     return null;
                 }
             }
@@ -3812,7 +3918,8 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     cwd: session.path,
                     mode,
                     mcpServers,
-                    cliOverrides: session.codexCliOverrides
+                    cliOverrides: session.codexCliOverrides,
+                    contextManagementConfig
                 });
                 const threadResponse = await appServerClient.startThread({
                     ...threadParams,
@@ -3824,6 +3931,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 const thread = threadRecord ? asRecord(threadRecord.thread) : null;
                 const threadId = asString(thread?.id);
                 applyResolvedModel(threadRecord?.model);
+                if (threadId) reserve.attach(threadId, threadResponse);
                 if (!threadId) {
                     throw new Error('app-server thread/start did not return thread.id');
                 }
@@ -3877,7 +3985,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 return true;
             }
 
-            const threadId = await ensureThreadForGoal(message.mode);
+            const threadId = await ensureThread(message.mode);
             if (!threadId) {
                 return true;
             }
@@ -3954,6 +4062,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                 invalidThreadId = null;
                 hasThread = false;
                 session.resetCodexThread();
+                reserve.detach();
                 sendVisibleStatus('Context was reset');
                 return true;
             }
@@ -3988,10 +4097,19 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
             return true;
         };
 
+        const reconcileIdleThread = async () => {
+            if (!hasThread && session.queue.size() === 0 && session.sessionId && session.sessionId !== session.sourceSessionId) {
+                await ensureThread(currentMode());
+                await refreshUsage();
+            }
+        };
+        await reconcileIdleThread();
+
         while (!this.shouldExit) {
             logActiveHandles('loop-top');
             if (!appServerClient.isConnected() || !appServerClient.isInitialized()) {
                 await ensureAppServerInitialized();
+                await reconcileIdleThread();
             }
             if (pendingSteerReconciliations.size > 0) {
                 await runSteerReconciliation();
@@ -4063,7 +4181,8 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                         cwd: session.path,
                         mode: message.mode,
                         mcpServers,
-                        cliOverrides: session.codexCliOverrides
+                        cliOverrides: session.codexCliOverrides,
+                        contextManagementConfig
                     });
 
                     const resumeCandidate = session.sessionId ?? null;
@@ -4078,13 +4197,13 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                             const response = shouldForkImportedSource
                                 ? await appServerClient.forkThread({
                                     threadId: resumeCandidate,
-                                    ...threadParams
+                                    ...withoutCodexModelOverrides(threadParams)
                                 }, {
                                     signal: this.abortController.signal
                                 })
                                 : await appServerClient.resumeThread({
                                     threadId: resumeCandidate,
-                                    ...threadParams
+                                    ...withoutCodexModelOverrides(threadParams)
                                 }, {
                                     signal: this.abortController.signal
                                 });
@@ -4092,6 +4211,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                             const responseThread = responseRecord ? asRecord(responseRecord.thread) : null;
                             threadId = asString(responseThread?.id) ?? resumeCandidate;
                             applyResolvedModel(responseRecord?.model);
+                            if (threadId) reserve.attach(threadId, response, shouldForkImportedSource ? resumeCandidate : undefined);
                             logger.debug(shouldForkImportedSource
                                 ? `[Codex] Forked imported app-server thread ${resumeCandidate} -> ${threadId}`
                                 : `[Codex] Resumed app-server thread ${threadId}`);
@@ -4117,6 +4237,7 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                         const thread = threadRecord ? asRecord(threadRecord.thread) : null;
                         threadId = asString(thread?.id);
                         applyResolvedModel(threadRecord?.model);
+                        if (threadId) reserve.attach(threadId, threadResponse);
                         if (!threadId) {
                             throw new Error('app-server thread/start did not return thread.id');
                         }
@@ -4140,13 +4261,22 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
                     }
                 }
 
+                const beforeRefresh = currentMode();
+                await reserve.refresh(message.mode, () => !turnInFlight && !this.shouldExit);
+                const afterRefresh = currentMode();
+                const transitioned = beforeRefresh.model !== afterRefresh.model
+                    || beforeRefresh.modelReasoningEffort !== afterRefresh.modelReasoningEffort
+                    || beforeRefresh.serviceTier !== afterRefresh.serviceTier;
                 setTurnInFlight(true);
                 this.conversationHistory.setBusy(true);
                 allowAnonymousTerminalEvent = false;
-                const mode = {
+                const mode = reserve.turnMode({
                     ...message.mode,
-                    model: session.getModel() ?? message.mode.model
-                };
+                    model: transitioned ? afterRefresh.model : message.mode.model ?? afterRefresh.model,
+                    modelReasoningEffort: transitioned ? afterRefresh.modelReasoningEffort
+                        : message.mode.modelReasoningEffort ?? afterRefresh.modelReasoningEffort,
+                    serviceTier: transitioned ? afterRefresh.serviceTier : message.mode.serviceTier ?? afterRefresh.serviceTier
+                });
                 usageModel = typeof mode.model === 'string' && mode.model.trim()
                     ? mode.model.trim()
                     : null;
@@ -4284,6 +4414,10 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
 
     protected async cleanup(): Promise<void> {
         logger.debug('[codex-remote]: cleanup start');
+        if (this.usageTimer) clearInterval(this.usageTimer);
+        this.usageTimer = null;
+        this.lunaReserve?.dispose();
+        this.lunaReserve = null;
         this.appServerClient.setTransportAbandonedHandler(null);
         this.appServerClient.setStderrHandler(null);
         try {
@@ -4297,6 +4431,15 @@ class CodexRemoteLauncher extends RemoteLauncherBase {
         if (this.happyServer) {
             this.happyServer.stop();
             this.happyServer = null;
+        }
+
+        if (this.mcpProxyCleanup) {
+            try {
+                await this.mcpProxyCleanup();
+            } catch (error) {
+                logger.debug('[codex-remote]: Error cleaning MCP proxy specs', error);
+            }
+            this.mcpProxyCleanup = null;
         }
 
         this.permissionHandler?.reset();

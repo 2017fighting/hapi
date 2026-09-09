@@ -4,7 +4,7 @@ Install the HAPI CLI and set up the hub.
 
 ## Prerequisites
 
-- At least one supported agent CLI installed (Claude Code, Codex, Cursor Agent, Grok Build, OpenCode, and more — see [Supported Agents](./agents.md))
+- At least one supported agent CLI installed (Claude Code, Codex, Cursor Agent, Grok Build, OpenCode, DeepSeek Harness ACP server, and more — see [Supported Agents](./agents.md))
 
 Verify your CLI is installed:
 
@@ -109,6 +109,8 @@ sudo mv ./hapi /usr/local/bin/
 <details>
 <summary>Build from source</summary>
 
+Requires Bun 1.4.0.
+
 ```bash
 git clone https://github.com/tiann/hapi.git
 cd hapi
@@ -210,6 +212,8 @@ On first run, HAPI:
 | `HAPI_TITLE_PROVIDER_MODEL` | - | - | Server-only lightweight model used for generated session titles |
 | `HAPI_TITLE_SUGGESTION_RATE_LIMIT` | `5` | - | Maximum title suggestions per session in the rate-limit window |
 | `HAPI_TITLE_SUGGESTION_RATE_WINDOW_MS` | `600000` | - | Title suggestion rate-limit window in milliseconds |
+| `HAPI_TITLE_PROVIDER_MAX_TOKENS` | `64` | - | Maximum completion-token budget per generated title; raise for reasoning-model providers |
+| `HAPI_TITLE_PROVIDER_TIMEOUT_MS` | `10000` | - | Title provider request timeout in milliseconds |
 </details>
 
 The session rename dialog's **Generate** action is unavailable until all three
@@ -335,6 +339,11 @@ Use `--workspace-root <path>` to restrict which directories the runner can brows
 ```bash
 hapi runner start --workspace-root ~/projects --workspace-root ~/work
 ```
+
+Without `--workspace-root`, manually entered spawn paths remain unrestricted.
+Session directory autocomplete and native pickers browse only beneath the
+runner's home directory; configuring roots makes both browsing and spawning
+use those roots instead.
 
 For running the hub and runner as persistent background services (pm2, launchd, systemd), see [Deployment](./deployment.md). Supervised installs should set `HAPI_RUNNER_SUPERVISED=1` on the runner process (systemd `Environment=` / pm2 `--env`) so the web **Restart** control can safely stop-runner knowing the supervisor will cold-start it.
 

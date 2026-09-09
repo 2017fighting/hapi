@@ -136,7 +136,7 @@ data class ComposerUiState(
     val text: String,
     /** A send (or its inactive-session resume) is in flight — spinner on the send button. */
     val isSending: Boolean,
-    /** A turn is active: long-press send offers Steer, and Abort is shown. */
+    /** A turn is active: long-press send offers Steer; an empty draft shows Stop. */
     val canSteer: Boolean,
 )
 
