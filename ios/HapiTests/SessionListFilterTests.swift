@@ -17,7 +17,7 @@ final class SessionListFilterTests: XCTestCase {
         XCTAssertNil(model.activeMachineFilter)
         XCTAssertNil(model.filterSummary)
         XCTAssertEqual(model.rows.count, 1)
-        XCTAssertEqual(model.rows.first?.meta, "workspace/hapi")
+        XCTAssertEqual(model.rows.first?.project, "hapi")
     }
 
     func testNamesCountsAndStableOrderIncludeHistoricalMachines() {
@@ -52,11 +52,11 @@ final class SessionListFilterTests: XCTestCase {
         ])
         let model = HomeFilterTestData.model(sessions: sessions)
         let options = model.machineFilters
-        XCTAssertTrue(model.rows.allSatisfy { $0.meta?.contains(" · ") == true })
+        XCTAssertTrue(model.rows.allSatisfy { $0.project == "hapi" }, "Machines remain in filters, not every row")
         model.selectMachine("mac")
         XCTAssertTrue(model.filters.isActive)
         XCTAssertEqual(model.rows.map(\.id), ["a"])
-        XCTAssertEqual(model.rows.first?.meta, "workspace/hapi")
+        XCTAssertEqual(model.rows.first?.project, "hapi")
         XCTAssertEqual(model.filterSummary, "Machine: Machine · mac")
         model.selectMachine("mac")
         XCTAssertEqual(model.activeMachineFilter, "mac")

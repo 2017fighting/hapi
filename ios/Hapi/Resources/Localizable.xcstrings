@@ -89,6 +89,17 @@
         }
       }
     },
+    "%@ · %lld requests" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · %lld 项"
+          }
+        }
+      }
+    },
     "%@, %lld sessions" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2996,6 +3007,39 @@
         }
       }
     },
+    "Needs approval" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "待批准"
+          }
+        }
+      }
+    },
+    "Needs attention" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "待处理"
+          }
+        }
+      }
+    },
+    "Needs reply" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "待回复"
+          }
+        }
+      }
+    },
     "New Session" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5768,17 +5812,6 @@
         }
       }
     },
-    "approve %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "批准 %@"
-          }
-        }
-      }
-    },
     "error" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5797,17 +5830,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "feature-x（可选）"
-          }
-        }
-      }
-    },
-    "needs input" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "需要输入"
           }
         }
       }
