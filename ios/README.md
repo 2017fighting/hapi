@@ -360,8 +360,10 @@ TEST_RUNNER_HAPI_QUESTION_CAPTURE=/tmp/hapi-question-review \
 
 Inspection pauses transcript tail-following and hidden history paging, without
 opening another SSE subscription. Closing returns to the reading anchor;
-**Back to latest** explicitly resumes following. Trimmed records remain visible
-as labeled, read-only snapshots; missing groups retain their last membership,
+opening/closing at bottom does not itself show **Back to latest**. The button
+appears when the transcript is far enough from bottom (or the live tail has been
+trimmed), and explicitly resumes following. Trimmed records remain visible as
+labeled, read-only snapshots; missing groups retain their last membership,
 without switching to another group. Incomplete history is labeled and can be
 loaded from the conversation after closing the inspector. Large text is loaded
 in 20,000-character parts and can be copied in full; large diffs use paged source
