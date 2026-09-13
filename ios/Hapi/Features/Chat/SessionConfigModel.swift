@@ -25,7 +25,8 @@ final class SessionConfigModel {
     var modelLoadFailed: Bool { interactor.codexModels == .failed }
     var showsModel: Bool { config.modelOptions != nil || config.modelOptionsLoading }
     var showsEffort: Bool { config.effortOptions?.isEmpty == false }
-    var hasSettings: Bool { !config.permissionModes.isEmpty || showsModel || showsEffort }
+    var showsCollaborationMode: Bool { config.flavor == "codex" }
+    var hasSettings: Bool { !config.permissionModes.isEmpty || showsModel || showsEffort || showsCollaborationMode }
 
     /// Details always expand; returning restores the user's root-sheet height.
     var detent: PresentationDetent {
@@ -34,6 +35,7 @@ final class SessionConfigModel {
     }
 
     var permission: PermissionMode { config.permissionMode ?? .default }
+    var collaborationMode: CodexCollaborationMode { config.collaborationMode ?? .default }
 
     var currentModel: String? {
         if config.flavor == "claude" {
@@ -86,6 +88,11 @@ final class SessionConfigModel {
         guard !isApplying, config.modelOptions?.contains(where: { $0.value == value }) == true else { return }
         if value != currentModel { interactor.setModel(value) }
         path.removeAll()
+    }
+
+    func selectCollaborationMode(_ mode: CodexCollaborationMode) {
+        guard !isApplying, config.canChangeCollaborationMode, mode != collaborationMode else { return }
+        interactor.setCollaborationMode(mode)
     }
 
     func selectEffort(_ value: String?) {

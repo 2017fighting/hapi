@@ -93,6 +93,23 @@ struct SessionListStoreTests {
 
     // MARK: - Event: patch
 
+    @Test func generatedTitlePatchUpdatesListAndDetailAndRejectsAnOlderTitle() async throws {
+        let (_, store) = try makeStore()
+        var initial = storeSession("remote", updatedAt: 100)
+        initial.metadata = SessionMetadata(path: "/repo", host: "test", flavor: "codex")
+        store.applySessionEvent(try sessionUpdatedEvent("remote", dataJSON: fullSessionJSON(initial)))
+        let revision = store.listRevision
+        let titlePatch = #"{"metadata":{"version":2,"value":{"path":"/repo","host":"test","flavor":"codex","summary":{"text":"Remote title","updatedAt":200}}}}"#
+        store.applySessionEvent(try sessionUpdatedEvent("remote", dataJSON: titlePatch))
+        #expect(store.sessions.first?.metadata?.summary?.text == "Remote title")
+        #expect(store.detail(for: "remote")?.metadata?.summary?.text == "Remote title")
+        #expect(store.listRevision > revision)
+        store.applySessionEvent(try sessionUpdatedEvent("remote", dataJSON: titlePatch))
+        store.applySessionEvent(try sessionUpdatedEvent("remote", dataJSON: #"{"metadata":{"version":1,"value":{"path":"/repo","host":"test"}}}"#))
+        #expect(store.sessions.first?.metadata?.summary?.text == "Remote title")
+        #expect(store.detail(for: "remote")?.metadata?.summary?.text == "Remote title")
+    }
+
     @Test func staleVersionedPatchLeavesDetailAndSummaryUntouched() async throws {
         let (performer, store) = try makeStore()
         await performer.enqueue(json: try sessionsResponseJSON(

@@ -78,6 +78,25 @@ final class SessionConfigPresentationTests: XCTestCase {
         try await configEventually { host.presentedViewController == nil }
     }
 
+    func testCodexRootShowsCollaborationAlongsidePermissionsModelAndEffort() async throws {
+        let harness = try await SessionConfigTestHarness(flavor: "codex")
+        let presentation = Presentation(model: harness.model)
+        let (window, host) = try await show(Host(presentation: presentation, locale: Locale(identifier: "zh-Hans")))
+        defer { window.isHidden = true }
+        try await configEventually { harness.model.showsEffort }
+        try await settle()
+        let sheet = try XCTUnwrap(host.presentedViewController)
+        let list = try XCTUnwrap(findList(sheet.view))
+        XCTAssertEqual(itemCount(list), 4)
+        XCTAssertTrue(list.visibleCells.allSatisfy { $0.bounds.height >= 44 })
+        harness.model.selectCollaborationMode(.plan)
+        try await settle()
+        XCTAssertTrue(host.presentedViewController === sheet)
+        XCTAssertEqual(harness.model.collaborationMode, .plan)
+        XCTAssertEqual(harness.model.permission, .default)
+        XCTAssertEqual(itemCount(list), 4)
+    }
+
     func testBusyAndFailureFeedbackRemainInsideTheOpenSheet() async throws {
         let harness = try await SessionConfigTestHarness(model: "sonnet")
         let presentation = Presentation(model: harness.model)

@@ -6,6 +6,33 @@ import XCTest
 
 @MainActor
 final class SessionConfigTests: XCTestCase {
+    func testCollaborationMenuUsesLiveStateWithoutDependingOnTheModelCatalog() async throws {
+        let harness = try await SessionConfigTestHarness(flavor: "codex")
+        let model = harness.model
+        XCTAssertTrue(model.showsCollaborationMode)
+        XCTAssertEqual(model.collaborationMode, .default)
+        await harness.http.setModelsFailure(true)
+        model.loadModels()
+        try await configEventually { model.modelLoadFailed }
+        XCTAssertTrue(model.config.canChangeCollaborationMode)
+        model.selectCollaborationMode(.plan)
+        XCTAssertEqual(model.collaborationMode, .plan)
+        XCTAssertEqual(model.permission, .default)
+        try await configEventually { !model.isApplying }
+        let posts = await harness.http.posts
+        XCTAssertEqual(posts.first?.path, "/api/sessions/config/collaboration-mode")
+        XCTAssertEqual(posts.first?.body, #"{"mode":"plan"}"#)
+        harness.store.applySessionEvent(.sessionUpdated(namespace: nil, sessionId: "config", data: .patch(SessionPatch(collaborationMode: .default))))
+        XCTAssertEqual(model.collaborationMode, .default)
+        harness.store.updateDetailLocal("config") { $0.active = false }
+        XCTAssertTrue(model.showsCollaborationMode)
+        model.selectCollaborationMode(.plan)
+        let finalPosts = await harness.http.posts
+        XCTAssertEqual(finalPosts.count, 1)
+        let claude = try await SessionConfigTestHarness()
+        XCTAssertFalse(claude.model.showsCollaborationMode)
+    }
+
     func testClaudeDefaultsAndUnknownValuesKeepTheirCatalogSemantics() async throws {
         let harness = try await SessionConfigTestHarness()
         let model = harness.model

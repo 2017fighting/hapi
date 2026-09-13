@@ -13,7 +13,7 @@ keeps one active. Session lists support machine filtering, pinning and archive;
 sending to an inactive session can resume it and migrate the draft/navigation
 when the returned session ID changes.
 
-Model and permission controls follow the session's agent/capabilities;
+Model, permission and Codex collaboration controls follow the session's agent/capabilities;
 usage/storage require the owner namespace. Rename, Delete and explicit Reopen
 have API wrappers but no current iOS UI. See the [native app guide](../docs/guide/native-apps.md)
 for platform differences, web-only features and everyday use.

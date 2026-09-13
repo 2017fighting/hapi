@@ -35,7 +35,7 @@ import Observation
 ///   published ``permissionOverrides`` prunes rows whose request left
 ///   `agentState.requests`); hub 404/409 → benign "already handled".
 /// - **Config** (``config``/``setPermissionMode(_:)``/``setModel(_:)``/
-///   ``setEffort(_:)``/``loadModelOptions()``): catalog pickers with
+///   ``setEffort(_:)``/``setCollaborationMode(_:)``/``loadModelOptions()``): catalog pickers with
 ///   optimistic detail updates, rolled forward to server truth on error;
 ///   codex model catalog fetched per session.
 ///
@@ -688,6 +688,18 @@ public final class ChatInteractor {
         runConfigChange(
             optimistic: { $0.permissionMode = mode },
             call: { try await api.setPermissionMode(sessionId: sessionId, mode: mode) }
+        )
+    }
+
+    /// Codex `POST /collaboration-mode`; shared terminals can edit too.
+    public func setCollaborationMode(_ mode: CodexCollaborationMode) {
+        let config = config
+        guard config.canChangeCollaborationMode, mode != (config.collaborationMode ?? .default) else { return }
+        let api = api
+        let sessionId = sessionId
+        runConfigChange(
+            optimistic: { $0.collaborationMode = mode },
+            call: { try await api.setCollaborationMode(sessionId: sessionId, mode: mode) }
         )
     }
 

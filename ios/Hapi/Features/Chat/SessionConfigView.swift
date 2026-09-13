@@ -3,7 +3,7 @@ import HapiProtocol
 import SwiftUI
 
 /// Compact, catalog-driven settings: navigation lists for permissions/models,
-/// a menu picker for effort. Selecting applies immediately; Done only dismisses.
+/// menu pickers for collaboration/effort. Selecting applies immediately; Done only dismisses.
 struct SessionConfigView: View {
     @State private var model: SessionConfigModel
     let notice: String?
@@ -66,6 +66,20 @@ struct SessionConfigView: View {
                             )
                         }
                         .accessibilityIdentifier("session-config-permission")
+                    }
+                    if model.showsCollaborationMode {
+                        Picker("Collaboration Mode", selection: Binding(
+                            get: { model.collaborationMode },
+                            set: { model.selectCollaborationMode($0) }
+                        )) {
+                            ForEach(CodexCollaborationMode.allCases, id: \.self) { mode in
+                                Text(LocalizedStringKey(mode.label)).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(minHeight: 44)
+                        .disabled(!model.config.canChangeCollaborationMode)
+                        .accessibilityIdentifier("session-config-collaboration")
                     }
                     if model.showsModel {
                         NavigationLink(value: SessionConfigModel.Page.model) {
