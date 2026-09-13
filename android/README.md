@@ -322,7 +322,12 @@ reveals the original input/result, including fields omitted from the preview.
 Mixed text/media results stay JSON instead of dropping non-text blocks.
 
 Question details show recorded selections, custom answers and notes with
-Markdown questions/options. `request_user_input` also restores answers from
+Markdown questions/options. Codex choice questions with `isOther: true` add
+**None of the above** and focus optional notes when selected; empty notes are
+valid. Translations never change the submitted `None of the above` wire value.
+Pi/MCP forms without `isOther` keep their existing choices. Recorded other
+answers and notes are also shown in question details.
+`request_user_input` also restores answers from
 historical results; live permission answers take precedence. Answered cards
 avoid duplicate results, but retain errors and the full input/result/answers
 under **Source**. Pending questions are answered in the conversation.

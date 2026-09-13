@@ -2435,6 +2435,17 @@
         }
       }
     },
+    "Hide note" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收起备注"
+          }
+        }
+      }
+    },
     "Hub" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3216,6 +3227,17 @@
         }
       }
     },
+    "None of the above" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以上都不是"
+          }
+        }
+      }
+    },
     "Not delivered" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3388,6 +3410,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "可选"
+          }
+        }
+      }
+    },
+    "Optionally, add details in notes." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可在备注中补充说明（可选）。"
           }
         }
       }

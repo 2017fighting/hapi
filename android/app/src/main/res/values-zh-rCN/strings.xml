@@ -365,6 +365,8 @@
     <string name="chat_perm_other">其他…</string>
     <string name="chat_perm_optional_format">%1$s（可选）</string>
     <string name="chat_perm_add_note">添加备注…</string>
+    <string name="chat_perm_none_of_the_above">以上都不是</string>
+    <string name="chat_perm_other_note_optional">可在备注中补充说明（可选）。</string>
 
     <!-- External links (B-M2d) -->
     <string name="chat_link_open_title">打开此链接？</string>

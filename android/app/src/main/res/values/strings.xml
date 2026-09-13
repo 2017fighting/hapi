@@ -359,6 +359,8 @@
     <string name="chat_perm_other">Other…</string>
     <string name="chat_perm_optional_format">%1$s (optional)</string>
     <string name="chat_perm_add_note">Add a note…</string>
+    <string name="chat_perm_none_of_the_above">None of the above</string>
+    <string name="chat_perm_other_note_optional">Optionally, add details in notes.</string>
 
     <!-- External links (B-M2d) -->
     <string name="chat_link_open_title">Open link?</string>

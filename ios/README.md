@@ -351,6 +351,11 @@ question**. **Previous question** retains all choices and notes; the last step
 always requires **Submit answer**. Recommended labels are display-only badges,
 never default selections or rewritten wire values. Other-answer/note fields
 expand on demand; text-only questions and prefilled drafts show them immediately.
+Codex choice questions with `isOther: true` also offer **None of the above**.
+Selecting it stays on the current question and focuses optional notes; empty
+notes are valid. Its wire value remains `None of the above` in every language,
+and recorded answers/notes appear in summaries and details. Requests without
+`isOther` (including Pi and MCP forms) keep their existing choices.
 All form state survives transcript-cell recycling for the retained request.
 Successful records collapse to answer summaries; missing recorded answers are
 shown as handled, not inferred from local drafts. Ordinary approvals retain their approval footer.
