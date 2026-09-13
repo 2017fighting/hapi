@@ -950,6 +950,17 @@
         }
       }
     },
+    "Applying changes…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在应用更改…"
+          }
+        }
+      }
+    },
     "Archive" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2446,6 +2457,17 @@
         }
       }
     },
+    "High risk" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高风险"
+          }
+        }
+      }
+    },
     "Hub" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3172,6 +3194,17 @@
         }
       }
     },
+    "No settings available for this session." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此会话没有可用设置。"
+          }
+        }
+      }
+    },
     "No storage data reported." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3586,6 +3619,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "权限模式"
+          }
+        }
+      }
+    },
+    "Permission modes control how the agent requests approval. Behavior varies by agent." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "权限模式控制代理请求审批的方式，具体行为因代理而异。"
           }
         }
       }
