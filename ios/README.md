@@ -313,6 +313,12 @@ Plan proposals (`ExitPlanMode` / `exit_plan_mode`) are reading documents, not
 activity summaries: their complete `input.plan` Markdown stays visible in the
 conversation, before any approval controls. The same renderer is used in the
 inspector; null output does not show a misleading "No output" placeholder.
+Shared Codex proposals expose **Implement plan** and **Continue planning** only
+when the active session's `agentState.codexPlanProposalId` matches the tool-call
+id. Implementation uses the dedicated plan endpoint, not permission approval;
+continue only focuses the composer, preserving its draft. Pending/error state
+survives row recycling. Withdrawn, historical and child proposals stay read-only
+(an outstanding operation/error can still be shown).
 Plans are prewarmed in the chat Markdown cache and never use the ordinary
 tool-output preview/paging budget. The inspector retains raw fields under Source.
 

@@ -1412,6 +1412,17 @@
         }
       }
     },
+    "Continue planning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "继续规划"
+          }
+        }
+      }
+    },
     "Copy" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2519,6 +2530,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "图片压缩后仍然过大"
+          }
+        }
+      }
+    },
+    "Implement plan" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "执行计划"
           }
         }
       }

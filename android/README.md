@@ -307,6 +307,13 @@ conversation, rendering the complete `input.plan` Markdown before approval
 controls. Tapping the header folds the card. Plan documents are prewarmed in the
 chat Markdown cache and do not use the ordinary tool-output paging budget; raw
 input/result remains under Source.
+Shared Codex proposals also show **Implement plan** and **Continue planning**
+when the active session's `agentState.codexPlanProposalId` matches the tool-call
+id. Implementation uses the dedicated plan endpoint, not permission approval;
+continue only focuses the composer, preserving its draft. The menu stays visible
+when the document is folded; pending/error state survives row recycling.
+Withdrawn, historical and child proposals remain read-only (an outstanding
+operation/error can still be shown).
 
 Details recognize namespaced command/script/patch calls, unwrap common
 nested result envelopes, and keep command exit/status metadata visible. File
