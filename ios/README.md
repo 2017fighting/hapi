@@ -318,6 +318,19 @@ TEST_RUNNER_HAPI_TYPOGRAPHY_CAPTURE=/tmp/hapi-typography-review \
 
 ### Tool inspection
 
+Inline approvals use a neutral card with a quiet pending/submitting/handled
+status, a full-input link, and adaptive action rows. `ChatActionButtonStyle`
+owns the complete 44pt minimum target (10pt corners); do not add system bordered
+button padding or another minimum label height. Approvals, question navigation
+and plan actions share only this style, never their submission semantics.
+Queued-message actions also keep 44pt targets and stack when the column is too
+narrow. Native alerts, sheets and form controls retain their system styling.
+
+`PermissionActionPresentationTests` covers flavor gates, action geometry, busy
+and already-handled states, failures, themes and large text. To capture isolated,
+non-networked approval specimens, set `TEST_RUNNER_HAPI_APPROVAL_CAPTURE` to a
+new temporary directory and run it through `ios/scripts/test-transcript.sh`.
+
 Plan proposals (`ExitPlanMode` / `exit_plan_mode`) are reading documents, not
 activity summaries: their complete `input.plan` Markdown stays visible in the
 conversation, before any approval controls. The same renderer is used in the

@@ -3029,6 +3029,17 @@
         }
       }
     },
+    "More approval options" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更多授权选项"
+          }
+        }
+      }
+    },
     "Name needs at least one letter or digit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5104,6 +5115,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在提交回答…"
+          }
+        }
+      }
+    },
+    "Submitting approval…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在提交授权…"
           }
         }
       }
