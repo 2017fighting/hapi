@@ -18,8 +18,10 @@ struct ChatView: View {
     @State private var filesOpen = false
     /// File viewer push for `hapi-file://` chat citations (A-M4a).
     @State private var viewerRoute: FileViewerRoute?
-    /// Scratchlist sheet (toolbar note icon, A-M4b).
+    /// Full inventory; the compact drawer lives with the composer below.
     @State private var scratchlistOpen = false
+    @State private var scratchlistEntry: ScratchlistEntry?
+    @State private var scratchlistStartsEditing = false
 
     /// Resume/reopen handed back a superseding session id — the host swaps
     /// its navigation entry (HomeView replaces the path element).
@@ -69,7 +71,11 @@ struct ChatView: View {
             VStack(spacing: 0) {
                 QueuedMessagesBarView(interactor: model.interactor)
                     .hapiReadingColumn()
-                ChatComposerView(interactor: model.interactor, dictation: model.dictation)
+                ChatComposerView(interactor: model.interactor, dictation: model.dictation) { entry, editing in
+                    scratchlistEntry = entry
+                    scratchlistStartsEditing = editing
+                    scratchlistOpen = true
+                }
             }
         }
         .toolbar {
@@ -95,7 +101,7 @@ struct ChatView: View {
                         Label("Session files", systemImage: "folder")
                     }
                     Button {
-                        scratchlistOpen = true
+                        model.interactor.setComposerDestination(.scratchlist)
                     } label: {
                         let count = model.interactor.scratchlistCount
                         if count > 0 {
@@ -142,7 +148,9 @@ struct ChatView: View {
                 store: model.scratchlist,
                 sessionId: model.sessionId,
                 attachments: model.scratchlistAttachments,
-                interactor: model.interactor
+                interactor: model.interactor,
+                initialEntry: scratchlistEntry,
+                initiallyEditing: scratchlistStartsEditing
             )
         }
         .toolPresentations(model: model, session: session, owner: "chat") { path in

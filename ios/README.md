@@ -255,6 +255,32 @@ uses `AnchoredTranscriptList` (`UICollectionView` with SwiftUI hosting) and
 prepares Markdown off the main thread; see
 [native transcript scrolling](../docs/native-chat-scrolling.md).
 
+## Scratchlist workflow
+
+The composer tray toggles a session-local `chat` / `scratchlist` destination.
+Scratchlist mode renders a bounded drawer (two recent drafts, one while the
+input is focused, summary-only at accessibility sizes) and an explicitly
+labelled **Save draft** action. Closing the drawer preserves input; taking a
+draft or accepting a queue send returns to chat mode. The queue remains a
+separate, automatically delivered surface.
+
+Text and attachments park as one snapshot. Failed saves retain input and
+retry the same entry ID. Taking a saved attachment creates a borrowed hub
+reference, without resuming the session; an explicit chat send stages it to
+the active/resumed session's upload directory. Queue actions do not consume
+the composer and use a stable local ID for the saved entry version. A failed
+post-acceptance deletion retries removal only. The full inventory uses one
+navigation stack for reading and transactional editing, with discard guards
+and editor identities protecting against late uploads.
+
+Regression suites: package `ScratchlistComposerWorkflowTests`,
+`ScratchlistAttachmentFlowTests`, `ScratchlistStoreTests` and
+`ComposerAttachmentsTests`; app-hosted `ScratchlistScreenModelTests` and
+`ScratchlistPresentationTests` (including transcript-anchor preservation).
+The presentation suite attaches light/dark, compact, accessibility, inventory
+and editor renders. Manually check keyboard/VoiceOver, conflict choices,
+photo/file retry, and inactive-session sending on a connected device.
+
 ## UI development
 
 ### Localization catalog

@@ -82,7 +82,7 @@ directory browsing and session creation.
 | Composer | Text, photos/camera/files, drafts, queued-message actions and steering when supported by the session. |
 | Session controls | Both support pin/archive, stopping a turn and sending to resume an inactive session. Android also exposes Rename, Delete and explicit Reopen actions; iOS currently has no corresponding UI for those three actions. |
 | Files and Git | Open **Session files** from the chat menu to browse/search files, inspect Git status and read diffs. |
-| Scratchlist | Open **Scratchlist** from the chat menu to park text and attachments for later use in a session. |
+| Scratchlist | On iOS, tap the tray beside the composer attachment button to enter **Save draft** mode; Android uses the chat menu. Text and attachments sync within the session. |
 | Dictation | Record audio, transcribe through a configured hub provider, then edit the inserted text before sending. |
 | Usage and storage | Available only to the hub owner (`default` namespace). |
 | Display | English/Simplified Chinese, theme preferences, system text scaling and machine filtering on the session list. |
@@ -91,6 +91,16 @@ Selecting an attachment starts its upload after preparation, before you send
 the message or save the Scratchlist entry. Removing it requests cleanup of
 unused uploads on a best-effort basis. See the [Privacy Policy](../privacy.md)
 for storage and provider data flows.
+
+On iOS, Scratchlist opens as a compact drawer above the same input field.
+**Save draft** keeps the content without sending it; **Back to chat** leaves
+unsaved input intact. **Take to composer** keeps the saved entry and restores
+its text and attachments. If the input is nonempty, choose **Append to current
+input** or **Save current input, then take draft**. **Add to send queue** is an
+explicit send and removes the draft only after acceptance. A failed removal
+can be retried without sending again. **View all** opens the searchable list;
+editing an original draft commits text and attachments together on **Save**.
+Cancelling an edit leaves the original unchanged.
 
 Dictation uses the first configured provider that supports standard
 transcription. The microphone stays hidden until provider discovery succeeds;
