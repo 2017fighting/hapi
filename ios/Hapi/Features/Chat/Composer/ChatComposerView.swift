@@ -122,19 +122,6 @@ struct ChatComposerView: View {
         .task(id: dictation.map { ObjectIdentifier($0) }) {
             await dictation?.refreshAvailability()
         }
-        .confirmationDialog("Attach", isPresented: $attachDialogOpen, titleVisibility: .visible) {
-            Button("Photo library") {
-                photosPickerOpen = true
-            }
-            if CameraCaptureView.isAvailable {
-                Button("Camera") {
-                    cameraOpen = true
-                }
-            }
-            Button("Files") {
-                filePickerOpen = true
-            }
-        }
         .photosPicker(
             isPresented: $photosPickerOpen,
             selection: $photoSelection,
@@ -262,6 +249,20 @@ struct ChatComposerView: View {
         .buttonStyle(.plain)
         .disabled(preparingAttachment || interactor.scratchlistBusy)
         .accessibilityLabel("Add attachment")
+        .accessibilityIdentifier("chat.add-attachment")
+        .confirmationDialog("Attach", isPresented: $attachDialogOpen, titleVisibility: .visible) {
+            Button("Photo library") {
+                photosPickerOpen = true
+            }
+            if CameraCaptureView.isAvailable {
+                Button("Camera") {
+                    cameraOpen = true
+                }
+            }
+            Button("Files") {
+                filePickerOpen = true
+            }
+        }
     }
 
     private var scratchlistButton: some View {

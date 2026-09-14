@@ -158,9 +158,12 @@ final class ChatModel {
 
     func releaseSurface(_ id: String) {
         visibleSurfaces.remove(id)
-        Task { [weak self] in
+        // Keep the model alive through the deferred teardown. A replaced
+        // split detail may otherwise deallocate before this task runs, leaving
+        // its SSE client running and the hub's open-chat marker stale.
+        Task { [self] in
             await Task.yield()
-            guard let self, self.visibleSurfaces.isEmpty else { return }
+            guard visibleSurfaces.isEmpty else { return }
             self.stop()
         }
     }

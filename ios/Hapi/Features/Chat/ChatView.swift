@@ -3,7 +3,7 @@ import HapiProtocol
 import HapiUI
 import SwiftUI
 
-/// The chat screen: `ScrollView + LazyVStack` over the reduced
+/// The chat screen: an anchored UIKit transcript over the reduced
 /// `VisibleChatBlock`s, newest at the bottom (M2f), plus the A-M3ab
 /// interaction chrome — composer + queued bar (bottom inset), permission
 /// action footers (via `\.chatInteractions`), the session config sheet
@@ -36,9 +36,14 @@ struct ChatView: View {
         sessionId: String,
         onNavigateToSession: ((String) -> Void)? = nil
     ) {
-        _model = State(initialValue: ChatModel(session: session, sessionId: sessionId))
+        self.init(session: session, model: ChatModel(session: session, sessionId: sessionId),
+                  onNavigateToSession: onNavigateToSession)
+    }
+
+    init(session: HubSession, model: ChatModel, onNavigateToSession: ((String) -> Void)? = nil) {
+        _model = State(initialValue: model)
         self.session = session
-        self.sessionId = sessionId
+        self.sessionId = model.sessionId
         self.onNavigateToSession = onNavigateToSession
     }
 
