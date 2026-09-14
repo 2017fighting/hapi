@@ -199,7 +199,9 @@ final class ChatModel {
             case .sessionSuperseded(let sessionId):
                 self.supersededSessionId = sessionId
             case .notice(let message):
-                self.showNotice(message)
+                // Scratchlist failures already have an inline banner with a
+                // retry action. A second toast obscures the same input area.
+                if message != self.interactor.scratchlistError { self.showNotice(message) }
             }
         }
         interactor.activate()

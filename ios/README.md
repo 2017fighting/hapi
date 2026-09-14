@@ -258,10 +258,11 @@ prepares Markdown off the main thread; see
 ## Scratchlist workflow
 
 The composer tray toggles a session-local `chat` / `scratchlist` destination.
-Scratchlist mode renders a bounded drawer (two recent drafts, one while the
-input is focused, summary-only at accessibility sizes) and an explicitly
-labelled **Save draft** action. Closing the drawer preserves input; taking a
-draft or accepting a queue send returns to chat mode. The queue remains a
+Scratchlist mode shows one recent draft, or just a header while the input is
+focused or when using accessibility text sizes, and an explicitly labelled
+**Save draft** action. Tap the header to open the full list, or × to return to
+chat. Closing the drawer preserves input; taking a draft or accepting a queue
+send returns to chat mode. The queue remains a
 separate, automatically delivered surface.
 
 Text and attachments park as one snapshot. Failed saves retain input and
@@ -272,6 +273,13 @@ the composer and use a stable local ID for the saved entry version. A failed
 post-acceptance deletion retries removal only. The full inventory uses one
 navigation stack for reading and transactional editing, with discard guards
 and editor identities protecting against late uploads.
+
+Inventory rows show two lines of text, an attachment count, **Take draft** and
+a menu for queueing, editing, copying and deleting. Pull down for search
+(including attachment filenames); full filenames and relative timestamps live
+in the detail view. The editor's + menu offers photos and files. Empty states
+and routine chrome avoid explanatory paragraphs; failures stay inline with
+their recovery action, without a duplicate toast.
 
 Regression suites: package `ScratchlistComposerWorkflowTests`,
 `ScratchlistAttachmentFlowTests`, `ScratchlistStoreTests` and

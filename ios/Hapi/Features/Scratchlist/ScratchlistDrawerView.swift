@@ -3,14 +3,13 @@ import HapiProtocol
 import HapiUI
 import SwiftUI
 
-/// A bounded preview, not another scroll view competing with the transcript.
+/// One recent draft while browsing; just a header while typing.
 struct ScratchlistDrawerView: View {
     @State private var model: ScratchlistScreenModel
     let interactor: ChatInteractor
     let keyboardFocused: Bool
     let onOpen: (ScratchlistEntry?, Bool) -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.hapiTypography) private var typography
 
     init(store: any SessionScratchlistStoring, sessionId: String, interactor: ChatInteractor,
          keyboardFocused: Bool, onOpen: @escaping (ScratchlistEntry?, Bool) -> Void) {
@@ -22,41 +21,19 @@ struct ScratchlistDrawerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ViewThatFits(in: .horizontal) {
-                HStack {
-                    title
-                    Spacer(minLength: 8)
-                    navigation
-                }
-                VStack(alignment: .leading, spacing: 0) { title; navigation }
+            header
+            if model.state.loadFailed || model.state.refreshFailed {
+                ScratchlistErrorBanner(message: String(localized: model.state.loadFailed
+                    ? "Couldn't load the scratchlist" : "Couldn't refresh — showing saved drafts")) { model.retry() }
             }
-            Text("Held — not sent")
-                .font(typography.captionFont).foregroundStyle(.secondary)
-                .padding(.bottom, 6)
-            if let error = model.notice {
-                ScratchlistErrorBanner(message: error, actionTitle: "Dismiss") { model.clearNotice() }
+            if !keyboardFocused, !dynamicTypeSize.isAccessibilitySize, let entry = model.state.entries.first {
+                ScratchlistEntryRow(entry: entry, interactor: interactor,
+                    onOpen: { onOpen(entry, false) }, onEdit: { onOpen(entry, true) },
+                    onDelete: { model.deleteEntry(entry.entryId) }, compact: true)
+                    .padding(.bottom, 8)
+                    .accessibilityIdentifier("scratchlist.recent")
             }
-            if model.isLoading {
-                ProgressView().frame(maxWidth: .infinity).padding(.vertical, 12)
-            } else if model.state.loadFailed || model.state.refreshFailed {
-                ScratchlistErrorBanner(message: String(localized: "Couldn't refresh — showing saved drafts")) { model.retry() }
-            }
-            if model.state.loaded, model.state.entries.isEmpty {
-                Button("Write the first draft") { interactor.focusComposer() }
-                    .frame(minHeight: 44)
-            } else if !dynamicTypeSize.isAccessibilitySize {
-                ForEach(model.state.entries.prefix(keyboardFocused ? 1 : 2)) { entry in
-                    ScratchlistEntryRow(entry: entry, interactor: interactor,
-                        onOpen: { onOpen(entry, false) }, onEdit: { onOpen(entry, true) },
-                        onDelete: { model.deleteEntry(entry.entryId) }, compact: true)
-                        .disabled(model.deletingEntryId != nil)
-                    Divider()
-                }
-            }
-            if model.state.atCap {
-                Text("Scratchlist is full (200 entries)").font(.footnote).foregroundStyle(.secondary)
-                    .padding(.vertical, 6)
-            }
+            Divider()
         }
         .padding(.horizontal, 12)
         .padding(.top, 4)
@@ -65,25 +42,36 @@ struct ScratchlistDrawerView: View {
         .onDisappear { model.stop() }
     }
 
-    private var title: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "tray").foregroundStyle(.orange)
-            Text("Scratchlist").font(.subheadline.weight(.semibold))
-            Text(verbatim: "\(model.state.entries.count)").font(.subheadline).foregroundStyle(.secondary)
-        }
-    }
-
-    private var navigation: some View {
-        HStack(spacing: 14) {
+    private var header: some View {
+        HStack(spacing: 0) {
             Button { onOpen(nil, false) } label: {
-                Text("View all").frame(minHeight: 44).contentShape(Rectangle())
+                HStack(spacing: 6) {
+                    Text("Scratchlist").font(.subheadline.weight(.semibold))
+                    if model.isLoading {
+                        ProgressView().controlSize(.small)
+                    } else if model.state.loaded {
+                        Text(verbatim: "· \(model.state.entries.count)")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityHint("View all")
+            .accessibilityIdentifier("scratchlist.open")
             Button { interactor.setComposerDestination(.chat) } label: {
-                Text("Back to chat").frame(minHeight: 44).contentShape(Rectangle())
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .medium)).foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
             }
-                .disabled(interactor.scratchlistBusy || interactor.isSending)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back to chat")
+            .accessibilityIdentifier("scratchlist.close")
+            .disabled(interactor.scratchlistBusy || interactor.isSending)
         }
-        .font(.subheadline)
-        .frame(minHeight: 44)
     }
 }

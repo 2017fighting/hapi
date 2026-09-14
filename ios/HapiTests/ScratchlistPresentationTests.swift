@@ -33,6 +33,7 @@ final class ScratchlistPresentationTests: XCTestCase {
         let interactor: ChatInteractor
         let size: DynamicTypeSize
         let dark: Bool
+        var locale = "zh-Hans"
         var body: some View {
             NavigationStack {
                 ScrollView {
@@ -51,23 +52,24 @@ final class ScratchlistPresentationTests: XCTestCase {
             }
             .hapiTypography()
             .environment(\.dynamicTypeSize, size)
-            .environment(\.locale, Locale(identifier: "zh-Hans"))
+            .environment(\.locale, Locale(identifier: locale))
             .preferredColorScheme(dark ? .dark : .light)
         }
     }
 
     func testComposerRendersAtCompactRegularAndAccessibleSizes() async throws {
-        for (name, width, size, dark) in [
-            ("light", CGFloat(402), DynamicTypeSize.large, false),
-            ("dark", CGFloat(402), DynamicTypeSize.large, true),
-            ("compact", CGFloat(320), DynamicTypeSize.large, false),
-            ("large-text", CGFloat(390), DynamicTypeSize.accessibility3, false),
+        for (name, width, size, dark, locale) in [
+            ("light", CGFloat(402), DynamicTypeSize.large, false, "zh-Hans"),
+            ("dark", CGFloat(402), DynamicTypeSize.large, true, "zh-Hans"),
+            ("compact", CGFloat(320), DynamicTypeSize.large, false, "zh-Hans"),
+            ("large-text", CGFloat(390), DynamicTypeSize.accessibility3, false, "zh-Hans"),
+            ("english", CGFloat(320), DynamicTypeSize.large, false, "en"),
         ] {
             let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
             let window = UIWindow(windowScene: scene)
             window.frame = CGRect(x: 0, y: 0, width: width, height: 874)
             let interactor = interactor()
-            let host = UIHostingController(rootView: Harness(interactor: interactor, size: size, dark: dark))
+            let host = UIHostingController(rootView: Harness(interactor: interactor, size: size, dark: dark, locale: locale))
             window.rootViewController = host
             window.makeKeyAndVisible()
             defer { window.isHidden = true }
@@ -91,18 +93,104 @@ final class ScratchlistPresentationTests: XCTestCase {
         }
     }
 
-    func testKeyboardPreviewIsBoundedAndAccessibilityUsesSummaryOnly() async throws {
+    func testDrawerShowsOneRecentDraftAndOnlyHeaderWhenTypingOrUsingLargeText() throws {
         let interactor = interactor()
-        let store = try XCTUnwrap(interactor.scratchlist)
-        for size in [DynamicTypeSize.large, .accessibility3] {
+        let store = try XCTUnwrap(interactor.scratchlist as? ScratchlistTestStore)
+        let entries = store.session.entries
+        func measure(count: Int, focused: Bool, size: DynamicTypeSize, locale: String) -> CGSize {
+            store.session.entries = Array(entries.prefix(count))
             let view = ScratchlistDrawerView(store: store, sessionId: "preview", interactor: interactor,
-                keyboardFocused: true, onOpen: { _, _ in })
-                .hapiTypography().environment(\.dynamicTypeSize, size)
+                keyboardFocused: focused, onOpen: { _, _ in })
+                .hapiTypography().environment(\.dynamicTypeSize, size).environment(\.locale, Locale(identifier: locale))
             let host = UIHostingController(rootView: view)
-            let fitting = host.sizeThatFits(in: CGSize(width: 320, height: 2000))
-            XCTAssertLessThan(fitting.height, 310, "Keyboard preview must not become an unbounded inventory")
-            XCTAssertLessThanOrEqual(fitting.width, 320)
+            return host.sizeThatFits(in: CGSize(width: 320, height: 2000))
         }
+        for locale in ["en", "zh-Hans"] {
+            let summary = measure(count: 3, focused: true, size: .large, locale: locale)
+            XCTAssertLessThan(summary.height, 70, "Typing should leave just one header, not a draft preview")
+            XCTAssertLessThanOrEqual(summary.width, 320)
+            XCTAssertEqual(measure(count: 0, focused: true, size: .large, locale: locale).height, summary.height, accuracy: 1)
+            let one = measure(count: 1, focused: false, size: .large, locale: locale)
+            XCTAssertGreaterThan(one.height, summary.height + 40)
+            XCTAssertLessThan(one.height, 150)
+            XCTAssertEqual(measure(count: 3, focused: false, size: .large, locale: locale).height, one.height, accuracy: 1)
+            for size in [DynamicTypeSize.accessibility3, .accessibility5] {
+                let empty = measure(count: 0, focused: false, size: size, locale: locale)
+                let populated = measure(count: 3, focused: false, size: size, locale: locale)
+                XCTAssertEqual(populated.height, empty.height, accuracy: 1, "Large text uses a summary even without the keyboard")
+                XCTAssertLessThanOrEqual(populated.width, 320)
+                XCTAssertLessThan(populated.height, 170)
+            }
+        }
+    }
+
+    func testRowsRemainCompactAndAdaptActionsAtAccessibleSizes() throws {
+        let interactor = interactor()
+        let entry = try XCTUnwrap(interactor.scratchlist?.state("preview").entries[1])
+        for locale in ["en", "zh-Hans"] {
+            for size in [DynamicTypeSize.large, .accessibility3, .accessibility5] {
+                for compact in [false, true] {
+                    let row = ScratchlistEntryRow(entry: entry, interactor: interactor,
+                        onOpen: {}, onEdit: {}, onDelete: {}, compact: compact)
+                        .hapiTypography().environment(\.dynamicTypeSize, size)
+                        .environment(\.locale, Locale(identifier: locale))
+                    let host = UIHostingController(rootView: row)
+                    let fitting = host.sizeThatFits(in: CGSize(width: 256, height: 2000))
+                    XCTAssertLessThanOrEqual(fitting.width, 256)
+                    XCTAssertGreaterThanOrEqual(fitting.height, 44)
+                    if size == .large { XCTAssertLessThan(fitting.height, compact ? 70 : 100) }
+                }
+            }
+        }
+    }
+
+    func testFocusingTheRealComposerCollapsesThePreviewWithoutChangingInput() async throws {
+        let interactor = interactor()
+        interactor.setComposerText("补充一条回归测试")
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let host = UIHostingController(rootView: ChatComposerView(interactor: interactor)
+            .hapiTypography().environment(\.locale, Locale(identifier: "zh-Hans")))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.endEditing(true); window.isHidden = true }
+        try await Task.sleep(for: .milliseconds(250))
+        let proposal = CGSize(width: 390, height: 2000)
+        let browsingHeight = host.sizeThatFits(in: proposal).height
+        interactor.focusComposer()
+        func hasFirstResponder(_ view: UIView) -> Bool {
+            view.isFirstResponder || view.subviews.contains(where: hasFirstResponder)
+        }
+        for _ in 0..<50 {
+            if hasFirstResponder(window) { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(hasFirstResponder(window))
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertLessThan(host.sizeThatFits(in: proposal).height, browsingHeight - 40)
+        XCTAssertEqual(interactor.composerText, "补充一条回归测试")
+        XCTAssertEqual(interactor.composerDestination, .scratchlist)
+        XCTAssertEqual(interactor.scratchlistCount, 3)
+    }
+
+    func testInlineScratchlistErrorsDoNotAlsoProduceToasts() throws {
+        let hub = try XCTUnwrap(HubSession(hubUrl: "http://127.0.0.1:1/scratchlist-notices-\(UUID().uuidString)",
+            credentialStore: InMemoryCredentialStore(), performer: ScratchlistOfflineHTTP()))
+        let model = ChatModel(session: hub, sessionId: "preview")
+        defer { model.stop(); hub.shutdown() }
+        model.start()
+        let message = "Couldn't park the draft — check the hub connection"
+        model.interactor.reportScratchlistError(message)
+        model.interactor.onEvent?(.notice(message))
+        XCTAssertNil(model.notice)
+        // Dismissing the inline error must not uncover a duplicate toast.
+        model.interactor.retryScratchlistComposerOperation()
+        XCTAssertNil(model.notice)
+        model.interactor.onEvent?(.notice("Draft parked to scratchlist"))
+        XCTAssertEqual(model.notice, "Draft parked to scratchlist")
+        model.interactor.onEvent?(.notice("An unrelated error"))
+        XCTAssertEqual(model.notice, "An unrelated error")
     }
 }
 
@@ -167,13 +255,23 @@ extension ScratchlistPresentationTests {
         let api = APIClient(baseURL: url,
             authManager: AuthManager(baseURL: url, credentialStore: InMemoryCredentialStore(), performer: http), performer: http)
         let loader = ScratchlistAttachmentLoader(api: api, sessionId: "preview")
-        for editing in [false, true] {
+        for (name, detail, editing, width, size, dark) in [
+            ("inventory", false, false, CGFloat(402), DynamicTypeSize.large, false),
+            ("inventory-dark", false, false, CGFloat(402), DynamicTypeSize.large, true),
+            ("inventory-compact", false, false, CGFloat(320), DynamicTypeSize.large, false),
+            ("inventory-large-text", false, false, CGFloat(390), DynamicTypeSize.accessibility3, false),
+            ("detail", true, false, CGFloat(402), DynamicTypeSize.large, false),
+            ("editor", true, true, CGFloat(402), DynamicTypeSize.large, false),
+            ("empty", false, false, CGFloat(402), DynamicTypeSize.large, false),
+        ] {
+            if name == "empty" { (store as? ScratchlistTestStore)?.session.entries = [] }
             let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
             let window = UIWindow(windowScene: scene)
-            window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+            window.frame = CGRect(x: 0, y: 0, width: width, height: 874)
             let view = ScratchlistView(store: store, sessionId: "preview", attachments: loader, interactor: interactor,
-                initialEntry: editing ? store.state("preview").entries.first : nil, initiallyEditing: editing)
+                initialEntry: detail ? store.state("preview").entries[1] : nil, initiallyEditing: editing)
                 .hapiTypography().environment(\.locale, Locale(identifier: "zh-Hans"))
+                .environment(\.dynamicTypeSize, size).preferredColorScheme(dark ? .dark : .light)
             window.rootViewController = UIHostingController(rootView: view)
             window.makeKeyAndVisible()
             defer { window.isHidden = true }
@@ -181,7 +279,7 @@ extension ScratchlistPresentationTests {
             let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
                 window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
             }
-            let name = editing ? "scratchlist-editor" : "scratchlist-inventory"
+            let name = "scratchlist-\(name)"
             let attachment = XCTAttachment(image: image)
             attachment.name = name
             attachment.lifetime = .keepAlways
@@ -189,7 +287,7 @@ extension ScratchlistPresentationTests {
             let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).png")
             try XCTUnwrap(image.pngData()).write(to: file)
             print("SCRATCHLIST_CAPTURE=\(file.path)")
-            XCTAssertEqual(store.state("preview").entries.count, 3)
+            XCTAssertEqual(store.state("preview").entries.count, name == "scratchlist-empty" ? 0 : 3)
         }
     }
 }

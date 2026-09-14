@@ -93,13 +93,15 @@ unused uploads on a best-effort basis. See the [Privacy Policy](../privacy.md)
 for storage and provider data flows.
 
 On iOS, Scratchlist opens as a compact drawer above the same input field.
-**Save draft** keeps the content without sending it; **Back to chat** leaves
-unsaved input intact. **Take to composer** keeps the saved entry and restores
-its text and attachments. If the input is nonempty, choose **Append to current
-input** or **Save current input, then take draft**. **Add to send queue** is an
+**Save draft** keeps the content without sending it; closing the drawer with
+× leaves unsaved input intact. The drawer shows one recent draft, or just its
+header while typing. **Take draft** keeps the saved entry and restores its
+text and attachments. If the input is nonempty, choose **Append to input** or
+**Save input, then take draft**. **Add to send queue** in the draft's menu is an
 explicit send and removes the draft only after acceptance. A failed removal
-can be retried without sending again. **View all** opens the searchable list;
-editing an original draft commits text and attachments together on **Save**.
+can be retried without sending again. Tap the drawer header for the full list
+and pull down to search text or filenames. The same menu offers edit, copy and
+delete; editing an original draft commits text and attachments together on **Save**.
 Cancelling an edit leaves the original unchanged.
 
 Dictation uses the first configured provider that supports standard

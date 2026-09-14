@@ -162,6 +162,35 @@
         }
       }
     },
+    "%lld attachments" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld attachment"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld attachments"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 个附件"
+          }
+        }
+      }
+    },
     "%lld chars" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -972,13 +1001,13 @@
         }
       }
     },
-    "Append to current input" : {
+    "Append to input" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "追加到当前输入"
+            "value" : "追加到输入"
           }
         }
       }
@@ -2270,17 +2299,6 @@
         }
       }
     },
-    "Drafts stay here until you use them. The send queue runs automatically." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "草稿会一直保留，直到你主动使用；发送队列则会自动执行。"
-          }
-        }
-      }
-    },
     "Earlier calls aren't loaded. Close this view and load older messages in the conversation." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2354,17 +2372,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "编辑笔记本"
-          }
-        }
-      }
-    },
-    "Edit original draft" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "编辑原草稿"
           }
         }
       }
@@ -3051,17 +3058,6 @@
         }
       }
     },
-    "Keep your next instruction here without interrupting the agent." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "记下接下来想做的事，不打断 agent 当前的工作。"
-          }
-        }
-      }
-    },
     "Language" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3574,7 +3570,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "还没有草稿"
+            "value" : "暂无草稿"
           }
         }
       }
@@ -4789,17 +4785,6 @@
         }
       }
     },
-    "Save current input, then take draft" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "暂存当前输入并取回"
-          }
-        }
-      }
-    },
     "Save draft" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4807,6 +4792,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "暂存"
+          }
+        }
+      }
+    },
+    "Save input, then take draft" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先暂存，再取回"
           }
         }
       }
@@ -4932,13 +4928,13 @@
         }
       }
     },
-    "Search drafts and filenames" : {
+    "Search drafts" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "搜索草稿或附件名称"
+            "value" : "搜索草稿"
           }
         }
       }
@@ -5581,13 +5577,13 @@
         }
       }
     },
-    "Take to composer" : {
+    "Take draft" : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "取回编辑"
+            "value" : "取回"
           }
         }
       }
@@ -6384,6 +6380,17 @@
         }
       }
     },
+    "Write draft" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "写草稿"
+          }
+        }
+      }
+    },
     "Write file" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6391,17 +6398,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "写入文件"
-          }
-        }
-      }
-    },
-    "Write the first draft" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "写下第一条草稿"
           }
         }
       }
@@ -6435,17 +6431,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的回答"
-          }
-        }
-      }
-    },
-    "Your current text and attachments will not be overwritten." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "不会直接覆盖当前文字和附件。"
           }
         }
       }
