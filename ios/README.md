@@ -110,9 +110,13 @@ The app supports multiple hubs with one active selection. See the
 [auth contract](../docs/api/client-contract/auth.md) for the wire rules.
 
 - **Manual entry:** start `hapi hub --relay`, then *Enter Manually* → HTTPS
-  hub origin and access token → *Pair*. For a source-tree `bun run dev` hub,
-  put an HTTPS reverse proxy or tunnel in front of `localhost:3006`; a
-  physical phone must reach that endpoint. The app checks `GET /health`,
+  hub address and access token → *Pair*. The address starts empty, with a
+  separate protocol menu defaulting to HTTPS; type the domain/IP and optional
+  port without a scheme. Pasting a full HTTP(S) URL updates that menu. A full
+  companion or web pairing link pasted into either field fills both values
+  for review — only submitting the form starts a connection. For a source-tree
+  `bun run dev` hub, put an HTTPS reverse proxy or tunnel in front of
+  `localhost:3006`; a physical phone must reach that endpoint. The app checks `GET /health`,
   requires `protocolVersion == ProtocolVersion.supported`, exchanges the
   token with `POST /api/auth` and stores credentials in the Keychain.
 - **QR scan:** the in-app scanner accepts both hub QR forms —
@@ -128,16 +132,21 @@ The app supports multiple hubs with one active selection. See the
   issued JWT rejected again, triggers re-pairing. Temporary network/5xx refresh
   failures retain credentials.
 
-The parser accepts HTTP URLs; manual addresses without a scheme receive an
-`http://` prefix. This is input normalization, not a transport exemption.
+The parser accepts HTTP URLs. Manual entry uses the selected protocol
+(default HTTPS); HTTP must be selected explicitly or supplied in a full URL
+or pairing link. The form warns that HTTP is unencrypted and may be restricted
+by iOS. It never guesses HTTP for a local address or downgrades after a failed
+HTTPS connection. Input acceptance is not a transport exemption.
 `Hapi/Info.plist` and the project build settings declare no ATS exceptions,
-including no `NSAllowsLocalNetworking`. Use explicit HTTPS URLs for a reliable
+including no `NSAllowsLocalNetworking`. Use HTTPS endpoints for a reliable
 pairing setup; HTTP behavior remains subject to system network policy.
 
 Manual app-layer acceptance: pair → kill/relaunch → background/foreground →
 pair a second hub and switch → sign out → scan both QR forms → open a deep
 link for unpaired/paired hubs. Also check that transient hub failures preserve
-pairing, while a rejected rotated token shows the sign-out banner. Pure pairing
+pairing, while a rejected rotated token shows the sign-out banner.
+Manual-entry form and system-paste behavior is covered by app-hosted
+`ManualPairingFormTests` and `ManualEntryPresentationTests`; pure pairing
 and auth behavior is covered by the package tests; this checklist is for the
 app wiring and platform interaction.
 

@@ -1269,6 +1269,17 @@
         }
       }
     },
+    "Check the hub address. HTTPS is recommended, for example https://hub.example.com." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请检查 Hub 地址。建议使用 HTTPS，例如 https://hub.example.com。"
+          }
+        }
+      }
+    },
     "Checking directory…" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1408,6 +1419,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "连接中…"
+          }
+        }
+      }
+    },
+    "Connection protocol" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接协议"
           }
         }
       }
@@ -1984,6 +2006,17 @@
         }
       }
     },
+    "Domain or IP address" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "域名或 IP 地址"
+          }
+        }
+      }
+    },
     "Done" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2127,13 +2160,35 @@
         }
       }
     },
-    "Enter the hub's full address, e.g. http://192.168.1.20:3006." : {
+    "Enter a valid hub domain or IP address, with an optional port." : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "请输入 Hub 的完整地址，例如 http://192.168.1.20:3006。"
+            "value" : "请输入有效的 Hub 域名或 IP 地址，可包含端口。"
+          }
+        }
+      }
+    },
+    "Enter the access token printed by your hub." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请输入 Hub 启动时显示的访问令牌。"
+          }
+        }
+      }
+    },
+    "Enter your hub address without the protocol, or paste a full URL or pairing link." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "输入 Hub 地址，无需填写协议；也可粘贴完整地址或配对链接。"
           }
         }
       }
@@ -2486,6 +2541,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "HAPI 是自托管的：你的智能体会话运行在你自己的机器上，由你自己运营的 Hub 提供服务。先在电脑上启动 Hub，然后用它打印的二维码配对本应用 — 也可以手动输入 Hub 地址和访问令牌。"
+          }
+        }
+      }
+    },
+    "HTTP is unencrypted and may be restricted by iOS. HTTPS is recommended." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HTTP 不加密，且可能受 iOS 网络策略限制。建议使用 HTTPS。"
           }
         }
       }
@@ -3623,6 +3689,17 @@
         }
       }
     },
+    "Pairing details filled in. Review them, then tap Pair." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配对信息已填入，请确认后点击「配对」。"
+          }
+        }
+      }
+    },
     "Pairing succeeded but the credentials could not be stored on this device. Try again." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3909,13 +3986,13 @@
         }
       }
     },
-    "Printed by the hub at startup, and shown in the web app under Settings → Companion Pairing. Pasting a full pairing link into either field also works." : {
+    "Printed by the hub at startup, or available in web Settings → Companion Pairing. You can also paste a pairing link here." : {
       "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hub 启动时打印，也显示在网页版「设置 → 伴侣应用配对」中。将完整配对链接粘贴到任一输入框同样有效。"
+            "value" : "可在 Hub 启动信息或网页版「设置 → 伴侣应用配对」中获取。也可在此粘贴配对链接。"
           }
         }
       }
@@ -5196,17 +5273,6 @@
         }
       }
     },
-    "The address the hub prints at startup — a LAN address like http://192.168.1.20:3006, or the public tunnel URL when running with --relay." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hub 启动时打印的地址 — 局域网地址如 http://192.168.1.20:3006，或使用 --relay 时的公网隧道地址。"
-          }
-        }
-      }
-    },
     "The app checks the hub is reachable, then exchanges the token for a session." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5368,6 +5434,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此笔记的附件配额已用完"
+          }
+        }
+      }
+    },
+    "This pairing link is invalid or incomplete. Copy the full link from your hub." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配对链接无效或不完整。请从 Hub 复制完整链接。"
           }
         }
       }

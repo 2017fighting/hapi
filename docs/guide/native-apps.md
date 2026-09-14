@@ -34,7 +34,10 @@ you install; see [Notifications](#notifications).
    - **Open a pairing link:** `hapicompanion://bind` opens the app's pairing
      flow. Confirm the hub before pairing.
    - **Enter manually:** supply the hub URL and access token printed by the
-     hub. Use the hub address, not the web frontend address `app.hapi.run`.
+     hub. On iOS, enter just the domain/IP and optional port; the separate
+     protocol menu defaults to HTTPS. You can also paste a full address, or
+     paste a pairing link into either field to fill both values before tapping
+     **Pair**. Use the hub address, not the web frontend address `app.hapi.run`.
 3. The app checks reachability and protocol compatibility, then authenticates
    and stores credentials for that hub. A namespaced token such as
    `your-token:team` opens that namespace's sessions.
@@ -46,11 +49,12 @@ The network relay, an HTTPS reverse proxy, or Tailscale Serve can provide an
 endpoint; see [Deployment](./deployment.md).
 
 Android rejects HTTP URLs in manual entry, QR codes, deep links and saved hub
-state, including debug builds. iOS accepts HTTP input and prefixes a manually
-entered address without a scheme with `http://`; connection success still
-depends on system network policy. The iOS project declares no ATS exceptions,
-so HTTP input acceptance does not guarantee a working connection. Prefer an
-explicit HTTPS URL on both platforms.
+state, including debug builds. iOS manual entry defaults to HTTPS and accepts
+HTTP only when explicitly selected or supplied in a full URL/pairing link. It
+warns about unencrypted HTTP and never automatically downgrades HTTPS. HTTP
+connection success still depends on system network policy. The iOS project
+declares no ATS exceptions, so HTTP input acceptance does not guarantee a
+working connection. Prefer HTTPS on both platforms.
 
 Camera pairing is optional. Use manual entry on an iOS Simulator or any device
 without a usable scanner.
