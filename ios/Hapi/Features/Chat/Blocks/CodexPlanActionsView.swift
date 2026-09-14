@@ -7,6 +7,7 @@ import SwiftUI
 struct CodexPlanActionsView: View {
     let planId: String
     let interactions: ChatInteractor
+    @Environment(\.hapiTheme) private var theme
     @Environment(\.hapiTypography) private var typography
 
     var body: some View {
@@ -20,26 +21,15 @@ struct CodexPlanActionsView: View {
                         .accessibilityIdentifier("plan-error-\(planId)")
                 }
                 if state.available || state.pending {
-                    // Stack on narrow phones and at large Dynamic Type sizes;
-                    // labels stay complete and every action has a 44 pt target.
-                    VStack(alignment: .leading, spacing: 4) {
-                        Button { interactions.implementCodexPlan(planId: planId) } label: {
-                            HStack {
-                                if state.pending { ProgressView().controlSize(.small) }
-                                Text("Implement plan")
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .contentShape(Rectangle())
+                    // Prefer one compact row, but never squeeze or truncate
+                    // the labels to fit a narrow column or larger text size.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            buttons(state: state, horizontal: true)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .accessibilityIdentifier("plan-implement-\(planId)")
-                        Button { interactions.continueCodexPlan(planId: planId) } label: {
-                            Text("Continue planning")
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                                .contentShape(Rectangle())
+                        VStack(spacing: 8) {
+                            buttons(state: state, horizontal: false)
                         }
-                        .buttonStyle(.bordered)
-                        .accessibilityIdentifier("plan-continue-\(planId)")
                     }
                     .font(typography.toolTitleFont)
                     .disabled(!state.canAct)
@@ -47,5 +37,52 @@ struct CodexPlanActionsView: View {
             }
             .padding(12)
         }
+    }
+
+    @ViewBuilder
+    private func buttons(state: CodexPlanActionState, horizontal: Bool) -> some View {
+        Button { interactions.implementCodexPlan(planId: planId) } label: {
+            HStack(spacing: 8) {
+                if state.pending {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(theme.background)
+                        .accessibilityHidden(true)
+                }
+                Text("Implement plan")
+            }
+            .fixedSize(horizontal: horizontal, vertical: true)
+        }
+        .buttonStyle(PlanActionButtonStyle(isPrimary: true))
+        .accessibilityIdentifier("plan-implement-\(planId)")
+
+        Button { interactions.continueCodexPlan(planId: planId) } label: {
+            Text("Continue planning")
+                .fixedSize(horizontal: horizontal, vertical: true)
+        }
+        .buttonStyle(PlanActionButtonStyle(isPrimary: false))
+        .accessibilityIdentifier("plan-continue-\(planId)")
+    }
+}
+
+/// Keep inline actions independent of the OS's bordered-button padding and
+/// capsule shape. The entire visible control remains a minimum 44 pt target.
+private struct PlanActionButtonStyle: ButtonStyle {
+    let isPrimary: Bool
+    @Environment(\.hapiTheme) private var theme
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        configuration.label
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .foregroundStyle(isPrimary ? theme.background : theme.textPrimary)
+            .background(isPrimary ? theme.link : Color.clear, in: shape)
+            .overlay(shape.strokeBorder(isPrimary ? Color.clear : theme.divider, lineWidth: 1))
+            .contentShape(shape)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.5)
     }
 }
