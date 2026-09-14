@@ -88,6 +88,7 @@ public final class ChatInteractor {
     // Screen-owned, not row-local: recycled plan cards retain operation state.
     private var pendingCodexPlanId: String?
     private var implementedCodexPlanIds: Set<String> = []
+    private var continuedCodexPlanIds: Set<String> = []
     private var codexPlanErrors: [String: String] = [:]
 
     private var queuedOpPending = false
@@ -835,6 +836,7 @@ public final class ChatInteractor {
             && detail?.metadata?.capabilities?.concurrentClients == true
             && detail?.agentState?.codexPlanProposalId == planId
             && !implementedCodexPlanIds.contains(planId)
+            && !continuedCodexPlanIds.contains(planId)
         return CodexPlanActionState(
             available: available,
             pending: pendingCodexPlanId == planId,
@@ -870,10 +872,12 @@ public final class ChatInteractor {
         }
     }
 
-    /// Continue planning only focuses the existing composer; it neither sends
+    /// Continue planning dismisses this proposal’s actions and focuses the composer; it neither sends
     /// text nor resolves an approval nor changes the collaboration mode.
     public func continueCodexPlan(planId: String) {
         guard codexPlanActions(planId: planId).canAct else { return }
+        continuedCodexPlanIds.insert(planId)
+        codexPlanErrors[planId] = nil
         composerFocusRequest += 1
     }
 
