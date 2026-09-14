@@ -1269,6 +1269,17 @@
         }
       }
     },
+    "Checking directory…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在检查目录…"
+          }
+        }
+      }
+    },
     "Checking hub…" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2178,6 +2189,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "取消排队消息失败"
+          }
+        }
+      }
+    },
+    "Failed to check directory" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法检查目录"
           }
         }
       }
@@ -3194,6 +3216,17 @@
         }
       }
     },
+    "No matching directories" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有匹配的目录"
+          }
+        }
+      }
+    },
     "No messages yet" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3641,6 +3674,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "路径"
+          }
+        }
+      }
+    },
+    "Path is outside workspace roots" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目录不在此机器允许的工作区内。"
           }
         }
       }
@@ -4459,6 +4503,17 @@
         }
       }
     },
+    "Searching directories…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在查找目录…"
+          }
+        }
+      }
+    },
     "Section" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4499,6 +4554,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已选择"
+          }
+        }
+      }
+    },
+    "Selected machine is offline" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所选机器已离线"
+          }
+        }
+      }
+    },
+    "Selected machine is offline. Choose an online machine." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所选机器已离线，请选择一台在线机器。"
           }
         }
       }

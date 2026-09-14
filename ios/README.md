@@ -95,6 +95,15 @@ presentation. When changing fixture inputs or generation, run
 hand-edit fixtures. See [fixture guidance](../shared/fixtures/README.md) and
 [UI development](#ui-development) for targeted app-hosted checks.
 
+New-session directory regression checks: `ios/scripts/linux-test.sh --filter
+'NewSession|RemoteDirectoryBrowser'` covers path queries and browser navigation;
+`HapiTests/NewSessionDirectoryTests` covers the form's defaults, roster refresh,
+offline machines and spawn validation. On a device, verify home → parent → a
+project outside home, explicit workspace-root prefixes, `~/` and hidden-directory
+completion, and clearing the input while machine health updates arrive. A
+restored or selected offline machine stays selected until the user chooses an
+online machine; its old path is never silently moved to another host.
+
 ## Pairing
 
 The app supports multiple hubs with one active selection. See the

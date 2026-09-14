@@ -42,6 +42,7 @@ enum LocalizedNoticeMapper {
         "Transcription failed",
         // NewSessionLogic
         "Name needs at least one letter or digit",
+        "Path is outside workspace roots",
         // MessageWindowController (degraded-sync banner)
         "Failed to synchronize messages",
         "Failed to load older messages",
