@@ -12,8 +12,8 @@ import SwiftUI
 /// Transcript layout and scroll intent live in `ChatTranscriptView`.
 struct ChatView: View {
     @State private var model: ChatModel
-    /// Session config sheet (toolbar gear).
-    @State private var configSheetOpen = false
+    /// Adaptive session settings (toolbar gear).
+    @State private var configOpen = false
     /// Files browser push (toolbar folder, A-M4a).
     @State private var filesOpen = false
     /// File viewer push for `hapi-file://` chat citations (A-M4a).
@@ -91,12 +91,9 @@ struct ChatView: View {
             // squeezed the title out): gear for the frequent config
             // switches, everything else behind one menu.
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    configSheetOpen = true
-                } label: {
-                    Image(systemName: "gearshape")
+                SessionConfigButton(isPresented: $configOpen) {
+                    SessionConfigView(interactor: model.interactor, notice: model.notice)
                 }
-                .accessibilityLabel("Session settings")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -125,9 +122,6 @@ struct ChatView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $configSheetOpen) {
-            SessionConfigView(interactor: model.interactor, notice: model.notice)
-        }
         .navigationDestination(isPresented: $filesOpen) {
             FilesView(session: session, sessionId: sessionId)
         }

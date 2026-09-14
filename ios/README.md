@@ -406,6 +406,41 @@ TEST_RUNNER_HAPI_TYPOGRAPHY_CAPTURE=/tmp/hapi-typography-review \
   ios/scripts/test-transcript.sh -only-testing:HapiTests/TypographySnapshotTests
 ```
 
+### Session settings
+
+The chat gear presents a single-page model/effort and permission/collaboration
+form. All selections use native menus; permission explanations, high-risk
+indicators, model-loading/retry states and update feedback remain in the form.
+Changes apply immediately; Done only dismisses. On regular-width windows the
+production toolbar button anchors an iPad popover; compact windows adapt that
+same presenter to a medium/large sheet (large for accessibility text).
+
+Run the configuration and real-presentation tests on both phone and tablet:
+
+```sh
+ios/scripts/test-transcript.sh \
+  -only-testing:HapiTests/SessionConfigTests \
+  -only-testing:HapiTests/SessionConfigPresentationTests
+
+# Pick a device type supported by your installed runtime:
+# xcrun simctl list devicetypes
+HAPI_TEST_DEVICE_TYPE=com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M5-12GB \
+  ios/scripts/test-transcript.sh \
+  -only-testing:HapiTests/SessionConfigTests \
+  -only-testing:HapiTests/SessionConfigPresentationTests
+```
+
+The script creates and deletes an isolated simulator. Set
+`TEST_RUNNER_HAPI_SESSION_CONFIG_CAPTURE` to a new temporary directory for
+non-networked specimens (not App Store screenshots). A widened phone window
+is not a substitute for the native iPad anchor test. For AXe-driven menu and
+Done checks, run only
+`SessionConfigPresentationTests/testNativeDevicePresentationIsAnchoredOnIPadAndAdaptsOnIPhone`
+with `TEST_RUNNER_HAPI_SESSION_CONFIG_INTERACTIVE_SECONDS=180`; leave the panel
+open when the pause ends. Manually check rotation and Split View/window resizing,
+menu checkmarks and risk announcements, and that closing preserves the chat's
+draft and reading position.
+
 ### Tool inspection
 
 Inline approvals use a neutral card with a quiet pending/submitting/handled
