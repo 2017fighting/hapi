@@ -29,6 +29,7 @@ import { backoff } from '@/utils/time'
 import { getInvokedCwd } from '@/utils/invokedCwd'
 import { RpcHandlerManager } from './rpc/RpcHandlerManager'
 import { registerCommonHandlers } from '../modules/common/registerCommonHandlers'
+import { setAgyCatalogChangeListener } from '../modules/common/agyModels'
 import {
     listOpencodeModelsForCwd,
     type ListOpencodeModelsForCwdRequest,
@@ -112,7 +113,6 @@ export class ApiMachineClient {
     ) {
         this.pathPolicy = new MachinePathPolicy({
             workspaceRoots,
-            homeDirectory: this.machine.metadata?.homeDir ?? homedir(),
         })
 
         this.rpcHandlerManager = new RpcHandlerManager({
@@ -121,6 +121,12 @@ export class ApiMachineClient {
         })
 
         registerCommonHandlers(this.rpcHandlerManager, getInvokedCwd())
+
+        // Only the machine daemon answers `<machineId>:listAgyModels`, so it is
+        // the one process that can tell the hub its catalog moved.
+        setAgyCatalogChangeListener(() => {
+            this.socket.emit('machine-agy-models-changed', { machineId: this.machine.id })
+        })
 
         this.rpcHandlerManager.registerHandler<unknown, AgentAvailabilityResponse>(
             RPC_METHODS.AgentAvailability,
@@ -178,7 +184,7 @@ export class ApiMachineClient {
 
             const targetPath = await this.pathPolicy.resolveForCheck(rawPath)
             if (!this.pathPolicy.isWithinBrowseRoots(targetPath)) {
-                return { success: false, error: 'Path is outside browse roots' }
+                return { success: false, error: 'Path is outside workspace roots' }
             }
 
             try {
@@ -194,34 +200,27 @@ export class ApiMachineClient {
                     if (!includeHidden && entry.name.startsWith('.')) return
 
                     const fullPath = join(targetPath, entry.name)
+                    const resolvedEntryPath = entry.isSymbolicLink()
+                        ? await this.pathPolicy.resolveForCheck(fullPath)
+                        : fullPath
+                    if (!this.pathPolicy.isWithinBrowseRoots(resolvedEntryPath)) return
+                    const stats = await stat(resolvedEntryPath).catch(() => undefined)
                     let type: 'file' | 'directory' | 'other' = 'other'
-                    let size: number | undefined
-                    let modified: number | undefined
                     let isGitRepo = false
 
-                    if (entry.isDirectory()) {
+                    if (entry.isDirectory() || stats?.isDirectory()) {
                         type = 'directory'
                         try {
-                            const gitStat = await stat(join(fullPath, '.git'))
+                            const gitStat = await stat(join(resolvedEntryPath, '.git'))
                             isGitRepo = gitStat.isDirectory() || gitStat.isFile()
                         } catch {
                             // not a git repo
                         }
-                    } else if (entry.isFile()) {
+                    } else if (entry.isFile() || stats?.isFile()) {
                         type = 'file'
                     }
 
-                    if (!entry.isSymbolicLink()) {
-                        try {
-                            const stats = await stat(fullPath)
-                            size = stats.size
-                            modified = stats.mtime.getTime()
-                        } catch {
-                            // ignore stat errors
-                        }
-                    }
-
-                    entries.push({ name: entry.name, type, size, modified, isGitRepo })
+                    entries.push({ name: entry.name, type, size: stats?.size, modified: stats?.mtime.getTime(), isGitRepo })
                 }))
 
                 entries.sort((a, b) => {
@@ -676,6 +675,8 @@ export class ApiMachineClient {
 
     shutdown(): void {
         this.stopKeepAlive()
+        // The listener holds this client, and the socket is about to close.
+        setAgyCatalogChangeListener(null)
         if (this.socket) {
             this.socket.close()
         }
