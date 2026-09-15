@@ -22,7 +22,10 @@ FROM oven/bun:1 AS build
 WORKDIR /app
 
 # Copy workspace manifests first so `bun install` is cached independently of source.
-COPY package.json bun.lock tsconfig.base.json ./
+# bunfig.toml must be here too: it sets `linker = "isolated"`, and installing
+# without it hoists deps to the root, leaving web/node_modules/katex absent —
+# which breaks web's vite build (copy-katex-fonts reads web/node_modules/katex).
+COPY package.json bun.lock bunfig.toml tsconfig.base.json ./
 COPY cli/package.json     cli/package.json
 COPY shared/package.json  shared/package.json
 COPY hub/package.json     hub/package.json
