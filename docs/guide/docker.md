@@ -98,10 +98,13 @@ docker build -t hapi-hub .
 
 ## Publishing via CI
 
-`sync-upstream.yml` (daily + manual dispatch) merges the newest upstream `v*` release tag into this branch and calls `docker.yml`, which publishes `X.Y.Z`, `X.Y`, `X`, and `latest` tags. Failures (merge conflict, broken build) open an `upstream-sync` issue that auto-closes on the next success.
+`sync-upstream.yml` (daily + manual dispatch) merges the newest upstream `v*` release tag into this branch and calls `docker.yml`, which publishes `X.Y.Z`, `X.Y`, `X`, and `latest` tags. Failures (merge conflict, rejected push, broken build) open an `upstream-sync` issue that auto-closes on the next success.
+
+It pushes with the **`SYNC_TOKEN` repository secret**: a fine-grained PAT on this repo with `Contents: Read and write` + `Workflows: Read and write`. That permission is not optional — GitHub refuses any `GITHUB_TOKEN` push that creates or updates `.github/workflows/**`, so the first upstream tag that adds or edits a workflow file (e.g. `android-release.yml` in v0.30.x) rejects the sync until the secret exists. Rotate it before the PAT expires.
 
 ## Troubleshooting
 
 - **Hub unreachable from outside the container** — `HAPI_LISTEN_HOST` must stay `0.0.0.0` (default in the image).
 - **`/data` permission errors** — ensure UID 1000 owns the volume/bind mount.
 - **Web app 503** — assets are baked at build time; a 503 from `/` means the image is corrupt or `/data` is read-only.
+- **Sync failed with `refusing to allow a GitHub App to create or update workflow ... without \`workflows\` permission`** — `SYNC_TOKEN` is missing, expired, or lacks `Workflows: write`. `permissions: contents: write` cannot fix it: the token needs the Workflows permission. Merges stay on the runner and `main` keeps its old tag until a run pushes successfully.

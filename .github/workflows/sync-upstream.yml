@@ -6,7 +6,13 @@ name: Sync upstream tag
 # Design (ADR 0001): this branch is upstream code + a Docker-only overlay, so the
 # merge cannot conflict in practice; `docker build` in docker.yml is the only gate
 # (upstream CI already tested the tagged code). Failures open an issue instead of
-# silently skipping a release; push races just fail and self-heal on the next run.
+# silently skipping a release; push races are detected and self-heal on the next run.
+#
+# Requires the SYNC_TOKEN secret: fine-grained PAT on this repo with Contents: r/w
+# and Workflows: r/w. GITHUB_TOKEN can never create or update .github/workflows/**
+# (`workflows` is not a grantable `permissions:` scope), so the first upstream tag
+# that adds or edits a workflow file — e.g. android-release.yml — rejects the push
+# until that secret exists. Rotate it before it expires.
 
 on:
   schedule:
@@ -29,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
-      synced: ${{ steps.head.outputs.synced }}
+      synced: ${{ steps.push.outputs.synced }}
       head-sha: ${{ steps.head.outputs.sha }}
       version: ${{ steps.head.outputs.version }}
     steps:
@@ -38,6 +44,10 @@ jobs:
         with:
           ref: main
           fetch-depth: 0 # full history for the merge
+          # PAT with `workflows` write: required to push upstream workflow changes.
+          # Falls back to GITHUB_TOKEN so the merge still runs (and the push step
+          # then reports the rejection loudly) when the secret is absent.
+          token: ${{ secrets.SYNC_TOKEN || github.token }}
 
       - name: Configure git identity
         run: |
@@ -89,18 +99,47 @@ jobs:
         run: |
           ver="${TAG#v}"
           {
-              echo "synced=true"
               echo "sha=$(git rev-parse HEAD)"
               echo "version=$ver"
           } >> "$GITHUB_OUTPUT"
 
+      # `synced` is only true once the merge is actually on main: a push that lost
+      # a race must not hand an unpushed SHA to docker.yml.
       - name: Push merge to main
         id: push
         if: steps.check.outputs.new == 'true'
-        run: git push origin main
+        run: |
+          if push_err=$(git push origin main 2>&1); then
+              echo "synced=true" >> "$GITHUB_OUTPUT"
+              exit 0
+          fi
+          printf '%s\n' "$push_err" >&2
+          head=$(git rev-parse HEAD)
+          remote=$(git ls-remote origin refs/heads/main 2>/dev/null | cut -f1 || true)
+          # Landed anyway: a concurrent run pushed this exact merge. synced=true is
+          # safe here because the SHA really is on main (docker.yml builds it).
+          if [ "$remote" = "$head" ]; then
+              echo "synced=true" >> "$GITHUB_OUTPUT"
+              echo "::warning::Push lost the race, but origin/main is already at $head."
+              exit 0
+          fi
+          # Diverged/moved: benign race, the next cron run re-merges.
+          if [ -n "$remote" ] && ! git merge-base --is-ancestor "$remote" "$head" 2>/dev/null; then
+              echo "synced=false" >> "$GITHUB_OUTPUT"
+              echo "::warning::Push to main lost a race (origin/main is $remote); the next sync re-merges."
+              exit 0
+          fi
+          # Rejected although it was a fast-forward of origin/main: nothing else
+          # landed, so this is permanent — a token missing the `workflows`
+          # permission, an expired PAT, or a ruleset — and must fail loudly instead
+          # of being swallowed as a race forever. An unreachable remote (empty
+          # `remote`) also fails closed.
+          echo "synced=false" >> "$GITHUB_OUTPUT"
+          echo "::error::Push to main was rejected (origin/main is ${remote:-unreachable}). If the log mentions the workflows permission, SYNC_TOKEN is missing, expired, or lacks Workflows: write."
+          exit 1
 
       - name: Close resolved sync issues
-        if: success() && steps.check.outputs.new == 'true'
+        if: steps.push.outputs.synced == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -108,10 +147,10 @@ jobs:
               gh issue close "$n" -c "Upstream sync succeeded (main is at $(git rev-parse --short HEAD))."
           done
 
-      # Conflict (upstream added overlapping files) -> issue. Push-rejected races
-      # are excluded: they self-heal on the next cron run.
+      # Conflict (upstream added overlapping files) or a permanently rejected push
+      # -> issue (a rejected push step only fails when it was not a race).
       - name: Open sync failure issue
-        if: failure() && steps.push.outcome != 'failure'
+        if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.latest.outputs.tag }}
@@ -122,10 +161,16 @@ jobs:
               echo "Automatic upstream tag sync failed on $(date -u +%FT%TZ)."
               echo
               echo "Upstream tag: \`$TAG\`"
+              echo
+              echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
               if [ -n "$conflicts" ]; then
                   echo
                   echo "Conflicted files:"
                   echo "$conflicts"
+              fi
+              if [ "${{ steps.push.conclusion }}" = "failure" ]; then
+                  echo
+                  echo "The push to \`main\` was rejected although it was a fast-forward. Check that the \`SYNC_TOKEN\` secret exists and still carries **Workflows: write** (GITHUB_TOKEN cannot push \`.github/workflows/**\`)."
               fi
               echo
               echo "Merge locally, resolve, and push. This issue auto-closes on the next successful sync."
