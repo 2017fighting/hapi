@@ -196,9 +196,12 @@ jobs:
   # docker build is the only gate; a failure here means the merged tag is broken.
   # Only fires when the merge itself succeeded (needs.sync.result == 'success'),
   # so sync-side failures don't double-report with empty versions.
+  # `always()` is load-bearing: a job that needs a failed job is itself skipped
+  # unless its `if` uses a status function, so without it this reporter is dead
+  # code and a broken image build never opens an issue.
   report-build-failure:
     needs: [sync, build-image]
-    if: needs.sync.result == 'success' && needs.build-image.result == 'failure'
+    if: always() && needs.sync.result == 'success' && needs.build-image.result == 'failure'
     runs-on: ubuntu-latest
     permissions:
       issues: write
